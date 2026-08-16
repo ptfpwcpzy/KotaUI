@@ -55,8 +55,11 @@ choose_certificate(){
     if [ -z "$CERT_SUBJECT" ]; then CERT_SUBJECT=$(ask "请输入 IP [默认：${detected:-请手动输入}]： "); CERT_SUBJECT=${CERT_SUBJECT:-$detected}; fi
     [ -n "$CERT_SUBJECT" ] || fail '无法自动识别公网 IP，请手动输入。'
   else fail '证书类型必须为 domain 或 ip。'; fi
-  if [ -z "$CERT_EMAIL" ]; then CERT_EMAIL=$(ask '证书通知邮箱： '); fi
-  [ -n "$CERT_EMAIL" ] || fail '证书通知邮箱不能为空。'
+  if [ -z "$CERT_EMAIL" ]; then
+    token=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)
+    token=${token:-$(date +%s)}
+    CERT_EMAIL="kotaui-${token}@example.com"
+  fi
 }
 
 choose_panel(){

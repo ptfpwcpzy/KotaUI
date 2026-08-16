@@ -32,14 +32,13 @@ unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
     export KOTAUI_NONINTERACTIVE=1
     export KOTAUI_CERT_TYPE=$CERT_TYPE
     export KOTAUI_CERT_SUBJECT=$CERT_SUBJECT
-    export KOTAUI_CERT_EMAIL=test@example.test
     export KOTAUI_PANEL_PORT=1989
     export KOTAUI_PANEL_PATH=ptf
     export KOTAUI_ADMIN_USER=admin
     export KOTAUI_ADMIN_PASSWORD=alpine-go-test-password
     case \"$PROMPT_CERT\" in
-      ip) printf \"2\\n203.0.113.10\\ntest@example.test\\n\" | env -u KOTAUI_CERT_TYPE -u KOTAUI_CERT_SUBJECT sh /opt/kotaui-source/install.sh ;;
-      domain) printf \"1\\npanel.example.test\\ntest@example.test\\n\" | env -u KOTAUI_CERT_TYPE -u KOTAUI_CERT_SUBJECT sh /opt/kotaui-source/install.sh ;;
+      ip) printf \"2\\n203.0.113.10\\n\" | env -u KOTAUI_CERT_TYPE -u KOTAUI_CERT_SUBJECT sh /opt/kotaui-source/install.sh ;;
+      domain) printf \"1\\npanel.example.test\\n\" | env -u KOTAUI_CERT_TYPE -u KOTAUI_CERT_SUBJECT sh /opt/kotaui-source/install.sh ;;
       *) sh /opt/kotaui-source/install.sh ;;
     esac
     test -x /opt/kotaui/kotaui
