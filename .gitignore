@@ -1,0 +1,10 @@
+node_modules/
+.npm/
+coverage/
+*.log
+.env
+.env.*
+/var/
+/tmp/
+*.swp
+.DS_Store

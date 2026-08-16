@@ -1,0 +1,20 @@
+#!/sbin/openrc-run
+
+description="KotaUI sing-box core"
+command="/opt/kotaui/bin/kotaui-singbox-run"
+command_args=""
+command_user="root:root"
+directory="/opt/kotaui"
+supervisor="supervise-daemon"
+output_log="/var/log/kotaui-singbox.log"
+error_log="/var/log/kotaui-singbox.err"
+respawn_delay=3
+
+start_pre() {
+  /opt/kotaui/bin/kotaui-singbox-check || return 1
+}
+
+depend() {
+  need net
+  after firewall
+}

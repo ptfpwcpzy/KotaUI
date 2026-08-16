@@ -1,19 +1,19 @@
 [Unit]
-Description=KotaUI self-hosted management panel
-After=network-online.target kotaui-singbox.service
+Description=KotaUI sing-box core
+After=network-online.target
 Wants=network-online.target
-Requires=kotaui-singbox.service
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/kotaui
-ExecStart=/opt/kotaui/bin/kotaui-run
+ExecStartPre=/opt/kotaui/bin/kotaui-singbox-check
+ExecStart=/opt/kotaui/bin/kotaui-singbox-run
 Restart=on-failure
 RestartSec=3
 StartLimitIntervalSec=60
 StartLimitBurst=5
-MemoryMax=160M
+MemoryMax=256M
 TasksMax=128
 NoNewPrivileges=true
 PrivateTmp=true

@@ -8,7 +8,9 @@ command -v go >/dev/null 2>&1 || { echo '需要 Go 编译器。' >&2; exit 1; }
 command -v git >/dev/null 2>&1 || { echo '需要 git。' >&2; exit 1; }
 git clone --depth 1 --branch "$VERSION" https://github.com/SagerNet/sing-box.git "$TMP/src" >/dev/null 2>&1
 cd "$TMP/src"
-GOTOOLCHAIN=auto CGO_ENABLED=0 go build -buildvcs=false -tags 'with_v2ray_api with_utls with_quic' -trimpath -ldflags '-s -w' -o "$TMP/sing-box" ./cmd/sing-box
+BUILD_JOBS=${KOTAUI_BUILD_JOBS:-1}
+BUILD_MEMORY=${KOTAUI_BUILD_MEMORY:-256MiB}
+GOTOOLCHAIN=auto GOMAXPROCS="$BUILD_JOBS" GOMEMLIMIT="$BUILD_MEMORY" CGO_ENABLED=0 go build -p "$BUILD_JOBS" -buildvcs=false -tags 'with_v2ray_api with_utls with_quic' -trimpath -ldflags '-s -w' -o "$TMP/sing-box" ./cmd/sing-box
 mkdir -p "$PREFIX"
 install -m 755 "$TMP/sing-box" "$PREFIX/sing-box"
 "$PREFIX/sing-box" version | grep -q 'with_v2ray_api' || { echo '构建产物缺少 with_v2ray_api 标签。' >&2; exit 1; }

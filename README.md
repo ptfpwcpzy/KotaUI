@@ -7,7 +7,7 @@ KotaUI 是一个面向 Alpine、Debian 和 Ubuntu VPS 的自托管 **sing-box �
 在全新的 VPS 上以 root 身份执行以下命令即可安装试验版：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUItest/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUI/main/install.sh | sh
 ```
 
 安装器会识别 Alpine、Debian 或 Ubuntu，安装 Node.js/npm、Git、OpenSSL、Certbot 和编译所需工具，构建带 `with_v2ray_api`、`with_utls`、`with_quic` 的 sing-box 版本，复制 KotaUI，生成管理员账号和随机密码，注册 systemd/OpenRC 服务，启动面板，并输出登录地址和凭据。安装完成后使用 `kota` 命令进行本机运维。
@@ -15,14 +15,14 @@ curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUItest/main/install.s
 如果希望固定管理员账号和密码，可以在安装前设置环境变量：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUItest/main/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUI/main/install.sh | \
   env KOTAUI_ADMIN_USER=admin KOTAUI_ADMIN_PASSWORD='change-this-password-123' sh
 ```
 
 如果希望安装时申请证书，可以使用域名或 IP。证书申请需要目标域名/IP 指向当前 VPS；standalone 校验需要临时使用 TCP 80。IP 证书会使用 `shortlived` profile，寿命可能只有数天，安装器和 UI 会明确提示并配置高频续期：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUItest/main/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUI/main/install.sh | \
   env KOTAUI_ISSUE_CERT=1 KOTAUI_CERT_DOMAIN=example.com KOTAUI_CERT_EMAIL=admin@example.com sh
 ```
 
