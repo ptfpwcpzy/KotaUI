@@ -269,3 +269,50 @@ func TestPanelUpdateRequiresAuthentication(t *testing.T) {
 		t.Fatalf("update auth status %d", w.Code)
 	}
 }
+
+func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	inbound := map[string]any{"name": "hy2", "type": "hysteria2", "port": 24443, "sni": "example.test"}
+	w := request(t, h, http.MethodPost, "/api/inbounds", inbound, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create inbound: %d %s", w.Code, w.Body.String())
+	}
+	var created config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	client := map[string]any{"username": "headeruser", "inboundIds": []string{created.ID}, "totalLimitBytes": int64(1073741824), "expiresAt": "2030-01-02"}
+	w = request(t, h, http.MethodPost, "/api/clients", client, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create client: %d %s", w.Code, w.Body.String())
+	}
+	w = request(t, h, http.MethodGet, "/kota-sub/headeruser", nil, nil)
+	if got := w.Header().Get("Subscription-Userinfo"); !strings.Contains(got, "total=1073741824") || !strings.Contains(got, "expire=") {
+		t.Fatalf("subscription userinfo header: %q", got)
+	}
+	if got := w.Header().Get("Profile-Title"); got != "KotaUI · headeruser" {
+		t.Fatalf("profile title: %q", got)
+	}
+	for _, endpoint := range []string{"/api/logs/panel", "/api/certificate/renew"} {
+		w = request(t, h, http.MethodPost, endpoint, nil, nil)
+		if endpoint == "/api/logs/panel" {
+			w = request(t, h, http.MethodGet, endpoint, nil, nil)
+		}
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("%s auth status %d", endpoint, w.Code)
+		}
+	}
+}
+
+func TestHysteriaBandwidthIsFixed(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "fixed-hy2", "type": "hysteria2", "port": 24448, "sni": "example.test", "upMbps": 1, "downMbps": 2}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create hysteria2: %d %s", w.Code, w.Body.String())
+	}
+	var created config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	if created.UpMbps != 500 || created.DownMbps != 500 {
+		t.Fatalf("hysteria2 bandwidth %d/%d", created.UpMbps, created.DownMbps)
+	}
+}

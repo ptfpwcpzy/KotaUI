@@ -92,6 +92,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
 	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
 	mux.HandleFunc("/api/update", a.auth(a.updatePanel))
+	mux.HandleFunc("/api/certificate/renew", a.auth(a.renewCertificate))
+	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -628,20 +630,37 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if strings.Contains(strings.ToLower(r.Header.Get("user-agent")), "mozilla") {
-		var client config.Client
-		for _, value := range state.Clients {
-			if value.Username == username {
-				client = value
-				break
-			}
+	var client config.Client
+	for _, value := range state.Clients {
+		if value.Username == username {
+			client = value
+			break
 		}
+	}
+	a.setSubscriptionHeaders(w, client, a.subscriptionBaseURL(state.Settings.SubscriptionPath)+"/"+username)
+	if strings.Contains(strings.ToLower(r.Header.Get("user-agent")), "mozilla") {
 		w.Header().Set("content-type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, a.subscriptionPage(client, strings.Count(links, "\n")+1, a.subscriptionBaseURL(state.Settings.SubscriptionPath)+"/"+username))
 		return
 	}
 	w.Header().Set("content-type", "text/plain; charset=utf-8")
 	_, _ = io.WriteString(w, links)
+}
+
+func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client, subscriptionURL string) {
+	fields := []string{"upload=0", "download=" + strconv.FormatInt(client.UsedBytes, 10)}
+	if client.TotalLimitBytes > 0 {
+		fields = append(fields, "total="+strconv.FormatInt(client.TotalLimitBytes, 10))
+	}
+	if client.ExpiresAt != "" {
+		if expires, err := time.ParseInLocation("2006-01-02", client.ExpiresAt, time.Local); err == nil {
+			fields = append(fields, "expire="+strconv.FormatInt(expires.Unix(), 10))
+		}
+	}
+	w.Header().Set("Subscription-Userinfo", strings.Join(fields, "; "))
+	w.Header().Set("Profile-Title", "KotaUI · "+client.Username)
+	w.Header().Set("Profile-Update-Interval", "12")
+	w.Header().Set("Profile-Web-Page-Url", subscriptionURL)
 }
 
 func (a *App) subscriptionPage(client config.Client, linkCount int, subscriptionURL string) string {
@@ -770,12 +789,8 @@ func validateInbound(v *config.Inbound) error {
 		if v.SNI == "" {
 			return errors.New("Hysteria 2 需要 TLS server_name")
 		}
-		if v.UpMbps == 0 {
-			v.UpMbps = 50
-		}
-		if v.DownMbps == 0 {
-			v.DownMbps = 200
-		}
+		v.UpMbps = 500
+		v.DownMbps = 500
 	case "shadowsocks2022":
 		if v.ServerPassword == "" {
 			v.ServerPassword = config.RandomBase64(32)
