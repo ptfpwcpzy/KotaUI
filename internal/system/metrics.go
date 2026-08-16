@@ -13,22 +13,23 @@ import (
 // Metrics is collected only when the dashboard requests it. No background
 // sampler is kept alive, which keeps KotaUI suitable for small VPS instances.
 type Metrics struct {
-	CPUCount           int       `json:"cpuCount"`
-	CPUPercent         float64   `json:"cpuPercent"`
-	MemoryTotal        uint64    `json:"memoryTotal"`
-	MemoryAvailable    uint64    `json:"memoryAvailable"`
-	SwapTotal          uint64    `json:"swapTotal"`
-	SwapFree           uint64    `json:"swapFree"`
-	DiskTotal          uint64    `json:"diskTotal"`
-	DiskFree           uint64    `json:"diskFree"`
-	NetworkRXBytes     uint64    `json:"networkRxBytes"`
-	NetworkTXBytes     uint64    `json:"networkTxBytes"`
-	ActiveConnections  int       `json:"activeConnections"`
-	Load               []float64 `json:"load"`
-	Uptime             uint64    `json:"uptime"`
-	Hostname           string    `json:"hostname"`
-	Kernel             string    `json:"kernel"`
-	CollectedAt        time.Time `json:"collectedAt"`
+	CPUCount          int       `json:"cpuCount"`
+	CPUPercent        float64   `json:"cpuPercent"`
+	MemoryTotal       uint64    `json:"memoryTotal"`
+	MemoryAvailable   uint64    `json:"memoryAvailable"`
+	SwapTotal         uint64    `json:"swapTotal"`
+	SwapFree          uint64    `json:"swapFree"`
+	DiskTotal         uint64    `json:"diskTotal"`
+	DiskFree          uint64    `json:"diskFree"`
+	NetworkRXBytes    uint64    `json:"networkRxBytes"`
+	NetworkTXBytes    uint64    `json:"networkTxBytes"`
+	ActiveConnections int       `json:"activeConnections"`
+	ActiveSourceIPs   int       `json:"activeSourceIPs"`
+	Load              []float64 `json:"load"`
+	Uptime            uint64    `json:"uptime"`
+	Hostname          string    `json:"hostname"`
+	Kernel            string    `json:"kernel"`
+	CollectedAt       time.Time `json:"collectedAt"`
 }
 
 func Collect(dataPath string, inboundPorts []int) Metrics {
@@ -42,7 +43,7 @@ func Collect(dataPath string, inboundPorts []int) Metrics {
 	m.SwapTotal = values["SwapTotal"]
 	m.SwapFree = values["SwapFree"]
 	m.NetworkRXBytes, m.NetworkTXBytes = networkCounters()
-	m.ActiveConnections = establishedConnections(inboundPorts)
+	m.ActiveConnections, m.ActiveSourceIPs = establishedConnectionStats(inboundPorts)
 	if body, err := os.ReadFile("/proc/loadavg"); err == nil {
 		fields := strings.Fields(string(body))
 		for i := 0; i < 3 && i < len(fields); i++ {
@@ -115,9 +116,9 @@ func networkCounters() (uint64, uint64) {
 	return rx, tx
 }
 
-func establishedConnections(ports []int) int {
+func establishedConnectionStats(ports []int) (int, int) {
 	if len(ports) == 0 {
-		return 0
+		return 0, 0
 	}
 	wanted := make(map[uint64]struct{}, len(ports))
 	for _, port := range ports {
@@ -125,7 +126,8 @@ func establishedConnections(ports []int) int {
 			wanted[uint64(port)] = struct{}{}
 		}
 	}
-	count := 0
+	connections := 0
+	sources := make(map[string]struct{})
 	for _, name := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
 		body, err := os.ReadFile(name)
 		if err != nil {
@@ -137,18 +139,22 @@ func establishedConnections(ports []int) int {
 				continue
 			}
 			local := strings.Split(fields[1], ":")
-			if len(local) != 2 {
+			remote := strings.Split(fields[2], ":")
+			if len(local) != 2 || len(remote) != 2 {
 				continue
 			}
 			port, err := strconv.ParseUint(local[1], 16, 16)
-			if err == nil {
-				if _, ok := wanted[port]; ok {
-					count++
-				}
+			if err != nil {
+				continue
 			}
+			if _, ok := wanted[port]; !ok {
+				continue
+			}
+			connections++
+			sources[remote[0]] = struct{}{}
 		}
 	}
-	return count
+	return connections, len(sources)
 }
 
 func cpuPercent() float64 {
