@@ -20,7 +20,7 @@ function load() {
 }
 function save(state) { const tmp = `${dbFile}.tmp`; fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, dbFile); }
 let state = load();
-const send = (res, code, body, type='application/json') => { res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' }); res.end(type === 'application/json' ? JSON.stringify(body) : body); };
+const send = (res, code, body, type='application/json') => { res.writeHead(code, { 'Content-Type': `${type}; charset=utf-8`, 'Cache-Control': 'no-store' }); const payload = type === 'application/json' ? JSON.stringify(body) : (typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body)); res.end(payload); };
 const readBody = req => new Promise((resolve, reject) => { let raw=''; req.on('data', c => { raw += c; if (raw.length > 1_000_000) reject(new Error('request too large')); }); req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('invalid json')); } }); req.on('error', reject); });
 const id = () => crypto.randomUUID();
 const validUsername = name => typeof name === 'string' && /^[A-Za-z0-9_-]{3,32}$/.test(name);
