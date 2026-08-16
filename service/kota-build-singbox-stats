@@ -18,7 +18,7 @@ if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
 else
   printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
   git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
-  GOMAXPROCS=1 CGO_ENABLED=0 go build -tags with_v2ray_api -trimpath -ldflags='-s -w' -o "$WORKDIR/sing-box" "$WORKDIR/source/cmd/sing-box"
+  (cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 go build -tags with_v2ray_api -trimpath -ldflags='-s -w' -o "$WORKDIR/sing-box" ./cmd/sing-box)
   install -m 755 "$WORKDIR/sing-box" "$DESTINATION"
 fi
 

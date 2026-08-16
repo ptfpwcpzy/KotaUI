@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
-	"sort"
 	"strings"
 	"time"
 
@@ -108,6 +107,13 @@ func trafficDelta(current, previous int64) int64 {
 }
 
 func (a *App) syncTraffic() {
+	a.trafficMu.Lock()
+	defer a.trafficMu.Unlock()
+	nowTime := time.Now()
+	if a.trafficSyncInterval > 0 && nowTime.Sub(a.lastTrafficSync) < a.trafficSyncInterval {
+		return
+	}
+	a.lastTrafficSync = nowTime
 	state := a.store.Snapshot()
 	if len(state.Clients) == 0 {
 		return
@@ -116,14 +122,12 @@ func (a *App) syncTraffic() {
 	for _, client := range state.Clients {
 		usernames = append(usernames, client.Username)
 	}
-	sort.Strings(usernames)
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 	current, err := queryUserTraffic(ctx, a.runtime.StatsPort, usernames)
 	if err != nil {
 		return
 	}
-	nowTime := time.Now()
 	month := nowTime.Format("2006-01")
 	needsSave := len(state.TrafficCounters) != len(state.Clients)
 	if !needsSave {

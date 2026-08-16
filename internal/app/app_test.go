@@ -29,6 +29,7 @@ func testApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
+	application.trafficSyncInterval = 0
 	return application
 }
 func fakeRealityKeypairBinary(t *testing.T) string {

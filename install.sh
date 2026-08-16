@@ -31,11 +31,12 @@ welcome(){ clear_screen; cat <<'EOF'
   项目：https://github.com/ptfpwcpzy/KotaUI
 
   本次安装将依次完成：
-  [1/5] 选择域名或 IP 证书
-  [2/5] 设置面板端口与访问路径
-  [3/5] 设置管理员账号与密码
-  [4/5] 准备运行环境与 sing-box
-  [5/5] 申请证书、启动服务并健康检查
+  [1/6] 选择域名或 IP 证书
+  [2/6] 设置面板端口与访问路径
+  [3/6] 设置管理员账号与密码
+  [4/6] 准备运行环境与 sing-box
+  [5/6] 构建面板与流量统计核心
+  [6/6] 申请证书、启动服务并健康检查
 
   适用 Alpine、Debian、Ubuntu；建议单核 512 MB 以上内存。
   请确认域名或 IP 已指向本服务器，且 TCP 80 可验证。
@@ -49,7 +50,7 @@ validate_port(){ case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1024 ] &&
 validate_path(){ case "$1" in ''|*[!A-Za-z0-9_-]*) return 1;; esac; [ "${#1}" -le 48 ]; }
 
 choose_certificate(){
-  step '1 / 5' '选择证书类型'
+  step '1 / 6' '选择证书类型'
   if [ -z "$CERT_TYPE" ]; then
     printf '1) 域名证书\n2) IP 证书\n'
     choice=$(ask '请选择 [默认 1：域名]： ')
@@ -71,7 +72,7 @@ choose_certificate(){
 }
 
 choose_panel(){
-  step '2 / 5' '设置面板访问参数'
+  step '2 / 6' '设置面板访问参数'
   while :; do
     [ -n "$PANEL_PORT" ] || PANEL_PORT=$(ask '自定义面板端口 [默认 1989]： ')
     PANEL_PORT=${PANEL_PORT:-1989}; validate_port "$PANEL_PORT" && break
@@ -86,7 +87,7 @@ choose_panel(){
 }
 
 choose_admin(){
-  step '3 / 5' '设置管理员账号和密码'
+  step '3 / 6' '设置管理员账号和密码'
   while [ -z "$ADMIN_USER" ]; do ADMIN_USER=$(ask '管理员账号： '); done
   while [ -z "$ADMIN_PASSWORD" ]; do
     ADMIN_PASSWORD=$(ask '管理员密码（输入内容会显示，仅输入一次）： ')
@@ -96,7 +97,7 @@ choose_admin(){
 
 install_packages(){
   . /etc/os-release 2>/dev/null || true
-  step '4 / 5' '安装轻量运行环境与 sing-box 核心'
+  step '4 / 6' '安装轻量运行环境与 sing-box 核心'
   case "${ID:-}" in
     alpine) apk add --no-cache ca-certificates curl git go certbot openssl sing-box python3 py3-pip py3-virtualenv ;;
     debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl python3 python3-venv python3-pip; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
@@ -118,7 +119,7 @@ prepare_ip_certbot(){
 }
 
 acquire_certificate(){
-  step '5 / 5' '申请证书并启用自动续签'
+  step '6 / 6' '申请证书并启用自动续签'
   prepare_ip_certbot
   if [ "$CERT_TYPE" = domain ]; then "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos -m "$CERT_EMAIL" -d "$CERT_SUBJECT"; else "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos --preferred-profile shortlived -m "$CERT_EMAIL" --ip-address "$CERT_SUBJECT"; fi
   cert_dir="/etc/letsencrypt/live/$CERT_SUBJECT"
@@ -131,7 +132,8 @@ acquire_certificate(){
 install_program(){
   if [ -z "$SOURCE_DIR" ]; then SOURCE_DIR=$(mktemp -d); trap 'rm -rf "$SOURCE_DIR"' EXIT; git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$SOURCE_DIR"; fi
   [ -f "$SOURCE_DIR/go.mod" ] || fail '未找到 KotaUI Go 源码。'
-  install -d -m 755 "$PREFIX" "$PREFIX/bin"
+  step '5 / 6' '构建 KotaUI 与用户流量统计核心'
+  install -d -m 755 "$PREFIX" "$PREFIX/bin" "$DATA_DIR" "$DATA_DIR/sing-box"
   (cd "$SOURCE_DIR" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
   install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
@@ -199,10 +201,10 @@ choose_certificate
 choose_panel
 choose_admin
 install_packages
-acquire_certificate
 install_program
+acquire_certificate
 install_services
-step '6 / 6' '完成服务健康检查'
+step '完成' '执行服务健康检查'
 attempt=0
 until "$BIN_DIR/kota" check >/dev/null 2>&1; do
   attempt=$((attempt + 1))

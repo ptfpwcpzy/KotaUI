@@ -33,13 +33,16 @@ var files embed.FS
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
 
 type App struct {
-	runtime       config.Runtime
-	store         *store.Store
-	key           []byte
-	mu            sync.Mutex
-	updateMu      sync.Mutex
-	updateRunning bool
-	sniProbe      sniProbeFunc
+	runtime             config.Runtime
+	store               *store.Store
+	key                 []byte
+	mu                  sync.Mutex
+	trafficMu           sync.Mutex
+	lastTrafficSync     time.Time
+	trafficSyncInterval time.Duration
+	updateMu            sync.Mutex
+	updateRunning       bool
+	sniProbe            sniProbeFunc
 }
 
 func New(runtime config.Runtime) (*App, error) {
@@ -70,7 +73,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], sniProbe: probeSNI}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 3 * time.Second, sniProbe: probeSNI}, nil
 }
 
 func (a *App) Handler() http.Handler {
