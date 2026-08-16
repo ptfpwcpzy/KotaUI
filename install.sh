@@ -42,10 +42,10 @@ else
   cp "$TMP/src/package.json" "$PREFIX/package.json"
 fi
 chmod 700 "$DATA_DIR"
-cat > "$BIN_DIR/kotaui" <<EOF
+cat > "$BIN_DIR/kota" <<EOF
 #!/bin/sh
 set -eu
-[ "\$(id -u)" -eq 0 ] || { printf '%s\\n' 'kotaui 必须以 root 身份运行。' >&2; exit 1; }
+[ "\$(id -u)" -eq 0 ] || { printf '%s\\n' 'kota 必须以 root 身份运行。' >&2; exit 1; }
 PREFIX="$PREFIX"
 DATA_DIR="$DATA_DIR"
 case "\${1:-menu}" in
@@ -53,10 +53,11 @@ case "\${1:-menu}" in
   start) exec env KOTAUI_DATA_DIR="\$DATA_DIR" node "\$PREFIX/server/index.mjs";;
   check) exec env KOTAUI_DATA_DIR="\$DATA_DIR" node -e "fetch('http://127.0.0.1:1108/api/health').then(r=>r.json()).then(x=>console.log(JSON.stringify(x))).catch(()=>process.exit(1))";;
   uninstall) printf '卸载需要二次确认。输入 REMOVE-KOTAUI 继续: '; read answer; [ "\$answer" = REMOVE-KOTAUI ] || exit 1; rm -rf "\$PREFIX" "\$DATA_DIR" "\$0"; printf 'KotaUI 已卸载。\n';;
-  *) printf '%s\n' '用法: kotaui {info|start|check|uninstall}';;
+  *) printf '%s\n' '用法: kota {info|start|check|uninstall}';;
 esac
 EOF
-chmod 755 "$BIN_DIR/kotaui"
+chmod 755 "$BIN_DIR/kota"
 log "安装完成: $PREFIX"
-log "启动方式: kotaui start"
-log "状态检查: kotaui check"
+log "唤醒菜单: kota"
+log "启动方式: kota start"
+log "状态检查: kota check"
