@@ -6,7 +6,7 @@ Requires=kotaui.service
 [Service]
 Type=simple
 EnvironmentFile=/var/lib/kotaui/runtime.env
-ExecStart=/usr/local/lib/kotaui/kotaui-singbox-run
+ExecStart=/bin/sh -c 'test -x "$KOTAUI_SINGBOX_BIN" || { echo "sing-box 可执行文件不存在或不可执行：$KOTAUI_SINGBOX_BIN" >&2; exit 127; }; test -s "$KOTAUI_SINGBOX_CONFIG" || { echo "sing-box 配置不存在或为空：$KOTAUI_SINGBOX_CONFIG" >&2; exit 1; }; exec "$KOTAUI_SINGBOX_BIN" run -c "$KOTAUI_SINGBOX_CONFIG"'
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true

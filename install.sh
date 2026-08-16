@@ -166,8 +166,6 @@ install_services(){
     cp "$BIN_DIR/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew; chmod 700 /etc/periodic/6hourly/kota-cert-renew
     rc-update add kotaui default >/dev/null 2>&1 || true; rc-update add kotaui-singbox default >/dev/null 2>&1 || true; rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
   else
-    install -d -m 755 /usr/local/lib/kotaui
-    install -m 755 "$SOURCE_DIR/service/kotaui-singbox-run" /usr/local/lib/kotaui/kotaui-singbox-run
     install -m 644 "$SOURCE_DIR/service/kotaui.service" /etc/systemd/system/kotaui.service
     install -m 644 "$SOURCE_DIR/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
     install -m 644 "$SOURCE_DIR/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service

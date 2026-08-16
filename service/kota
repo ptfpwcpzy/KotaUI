@@ -80,8 +80,6 @@ update(){
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
   install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
   if [ "$(manager)" = systemd ]; then
-    install -d -m 755 /usr/local/lib/kotaui
-    install -m 755 "$source/service/kotaui-singbox-run" /usr/local/lib/kotaui/kotaui-singbox-run
     install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service
     install -m 644 "$source/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
     install -m 644 "$source/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service
