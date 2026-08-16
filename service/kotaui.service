@@ -1,0 +1,22 @@
+[Unit]
+Description=KotaUI self-hosted management panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/kotaui
+Environment=NODE_ENV=production
+Environment=KOTAUI_DATA_DIR=/var/lib/kotaui
+Environment=KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json
+ExecStart=/usr/bin/node /opt/kotaui/server/index.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kotaui /opt/kotaui
+
+[Install]
+WantedBy=multi-user.target

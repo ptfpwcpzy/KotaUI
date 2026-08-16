@@ -1,0 +1,17 @@
+#!/sbin/openrc-run
+
+description="KotaUI self-hosted management panel"
+command="/usr/bin/node"
+command_args="/opt/kotaui/server/index.mjs"
+directory="/opt/kotaui"
+command_user="root:root"
+supervisor="supervise-daemon"
+output_log="/var/log/kotaui.log"
+error_log="/var/log/kotaui.err"
+environment="NODE_ENV=production KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json"
+respawn_delay=5
+
+ depend() {
+  need net
+  after firewall
+ }

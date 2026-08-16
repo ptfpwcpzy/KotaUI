@@ -7,5 +7,9 @@
   "scripts": {
     "start": "node server/index.mjs",
     "test": "node --test"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.13.4",
+    "@grpc/proto-loader": "^0.7.13"
   }
 }
