@@ -25,11 +25,53 @@ ARCH=$(uname -m)
 case "$ARCH" in x86_64|aarch64) ;; *) fail "暂不支持架构: $ARCH";; esac
 if [ -r /etc/os-release ]; then . /etc/os-release; else fail '无法识别操作系统。'; fi
 case "${ID:-}" in alpine|debian|ubuntu) ;; *) fail "暂不支持系统: ${ID:-unknown}";; esac
+
+# curl ... | sh 时标准输入已被脚本占用，因此交互向导从 SSH 终端 /dev/tty 读取。
+INTERACTIVE=0
+if [ -r /dev/tty ] && [ -t 1 ]; then
+  INTERACTIVE=1
+  exec 3</dev/tty
+  printf '\n'
+  printf '%s\n' '========================================'
+  printf '%s\n' '           KotaUI 一键安装向导'
+  printf '%s\n' '========================================'
+  printf '%s\n' 'KotaUI 使用单一 sing-box 核心，支持 Reality、Hysteria 2 和 Shadowsocks 2022。'
+  printf '%s\n' '安装过程将配置面板、订阅、证书自动续期和系统服务。'
+  printf '%s' '确认开始安装？按回车继续，输入 q 退出: '
+  IFS= read -r WELCOME_CONFIRM <&3
+  [ "${WELCOME_CONFIRM:-}" = q ] && fail '用户取消安装。'
+
+  printf '\n%s\n' '请选择证书申请方式：'
+  printf '%s\n' '  1) 域名（默认）'
+  printf '%s\n' '  2) IP 地址（IP 证书有效期较短，将自动高频续期）'
+  printf '%s' '请选择 [1]: '
+  IFS= read -r CERT_CHOICE <&3
+  CERT_CHOICE=${CERT_CHOICE:-1}
+  case "$CERT_CHOICE" in
+    1)
+      printf '%s' '请输入已解析到本 VPS 的域名: '
+      IFS= read -r CERT_DOMAIN <&3
+      [ -n "$CERT_DOMAIN" ] || fail '域名不能为空。'
+      ;;
+    2)
+      printf '%s\n' 'IP 证书有效期较短，通常只有数天；安装器会每 6 小时检查并自动续期。'
+      printf '%s' '请输入本 VPS 的公网 IP: '
+      IFS= read -r CERT_DOMAIN <&3
+      [ -n "$CERT_DOMAIN" ] || fail 'IP 地址不能为空。'
+      ;;
+    *) fail '证书方式只能选择 1 或 2。';;
+  esac
+  ISSUE_CERT=1
+  if [ -z "$CERT_EMAIL" ]; then
+    printf '%s' '请输入 ACME 通知邮箱（可留空）: '
+    IFS= read -r CERT_EMAIL <&3
+  fi
+  printf '\n'
+fi
+
 valid_port(){ case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]; }
 valid_port "$PANEL_PORT" || fail "面板端口无效: $PANEL_PORT"
 case "$ADMIN_USER" in ''|*[!A-Za-z0-9_-]*) fail '管理员账号只能包含字母、数字、下划线和连字符。';; esac
-if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9_-' | cut -c1-20); fi
-[ "${#ADMIN_PASSWORD}" -ge 12 ] || fail '管理员密码至少需要 12 个字符。'
 valid_port "$SUB_PORT" || fail "订阅端口无效: $SUB_PORT"
 [ "$PANEL_PORT" != "$SUB_PORT" ] || fail '面板端口和订阅端口不能相同。'
 install_runtime(){
@@ -65,6 +107,9 @@ command -v node >/dev/null 2>&1 || install_runtime
 command -v npm >/dev/null 2>&1 || install_runtime
 command -v git >/dev/null 2>&1 || install_runtime
 command -v openssl >/dev/null 2>&1 || install_runtime
+command -v openssl >/dev/null 2>&1 || fail 'OpenSSL 安装失败。'
+if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9_-' | cut -c1-20); fi
+[ "${#ADMIN_PASSWORD}" -ge 12 ] || fail '管理员密码至少需要 12 个字符。'
 command -v node >/dev/null 2>&1 || fail 'Node.js 安装失败。'
 command -v npm >/dev/null 2>&1 || fail 'npm 安装失败。'
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
@@ -101,13 +146,25 @@ chmod 700 "$DATA_DIR"
 if [ "$ISSUE_CERT" = 1 ]; then
   [ -n "$CERT_DOMAIN" ] || fail 'KOTAUI_ISSUE_CERT=1 时必须设置 KOTAUI_CERT_DOMAIN。'
   mkdir -p "$DATA_DIR/certs"
-  CERT_ARGS="certonly --standalone --non-interactive --agree-tos --keep-until-expiring -d $CERT_DOMAIN"
-  if [ -n "$CERT_EMAIL" ]; then CERT_ARGS="$CERT_ARGS --email $CERT_EMAIL"; else CERT_ARGS="$CERT_ARGS --register-unsafely-without-email"; fi
-  case "$CERT_DOMAIN" in *[!0-9.]*|*:*) ;; *) CERT_ARGS="$CERT_ARGS --cert-profile shortlived";; esac
   log "申请 ACME 证书，standalone 校验需要临时占用 TCP 80。"
+  # IP 证书必须使用 shortlived profile；域名证书使用普通 profile。
+  case "$CERT_DOMAIN" in
+    *[!0-9.]*|*:*) CERT_KIND=domain;;
+    *) CERT_KIND=ip;;
+  esac
   # 只为证书校验临时放行 80，完成后撤销临时规则。
   if [ "$CONFIGURE_FIREWALL" = 1 ] && command -v ufw >/dev/null 2>&1; then ufw allow 80/tcp >/dev/null; fi
-  sh -c "certbot $CERT_ARGS"
+  if [ "$CERT_KIND" = ip ]; then
+    if [ -n "$CERT_EMAIL" ]; then
+      certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --cert-profile shortlived --email "$CERT_EMAIL" -d "$CERT_DOMAIN"
+    else
+      certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --cert-profile shortlived --register-unsafely-without-email -d "$CERT_DOMAIN"
+    fi
+  elif [ -n "$CERT_EMAIL" ]; then
+    certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --email "$CERT_EMAIL" -d "$CERT_DOMAIN"
+  else
+    certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --register-unsafely-without-email -d "$CERT_DOMAIN"
+  fi
   ln -sfn "/etc/letsencrypt/live/$CERT_DOMAIN/fullchain.pem" "$DATA_DIR/certs/fullchain.pem"
   ln -sfn "/etc/letsencrypt/live/$CERT_DOMAIN/privkey.pem" "$DATA_DIR/certs/privkey.pem"
   umask 077; printf 'KOTAUI_CERT_DOMAIN=%s\\n' "$CERT_DOMAIN" > "$DATA_DIR/certificate.env"
@@ -171,3 +228,4 @@ log "服务端口: $PANEL_PORT；订阅端口: $SUB_PORT"
 log "管理员账号: $ADMIN_USER"
 log "管理员密码: $ADMIN_PASSWORD"
 log "统计 API 仅监听 127.0.0.1:$STATS_PORT"
+[ "$INTERACTIVE" = 1 ] && printf '%s\n' '证书已配置自动维护：systemd 使用每 6 小时续期检查，Alpine 使用 6 小时周期任务。'
