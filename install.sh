@@ -23,22 +23,25 @@ fail(){ printf '[ 失败 ] %s\n' "$1" >&2; exit 1; }
 ask(){ printf '%s' "$1" >&2; IFS= read -r answer || true; printf '%s' "$answer"; }
 
 welcome(){ clear_screen; cat <<'EOF'
-============================================================
-                    欢迎使用 KotaUI
-                 轻量级 sing-box 管理面板
-============================================================
-项目作者：ptfpwcpzy
-项目地址：https://github.com/ptfpwcpzy/KotaUI
++----------------------------------------------------------+
+|                         KotaUI                           |
+|                轻量 sing-box 管理面板                    |
++----------------------------------------------------------+
+  作者：那么羡慕你
+  项目：https://github.com/ptfpwcpzy/KotaUI
 
-安装流程：
-  1. 选择域名或 IP 证书
-  2. 设置面板端口（默认 1989）
-  3. 设置面板路径（默认 ptf）
-  4. 设置管理员账号和密码
+  本次安装将依次完成：
+  [1/5] 选择域名或 IP 证书
+  [2/5] 设置面板端口与访问路径
+  [3/5] 设置管理员账号与密码
+  [4/5] 准备运行环境与 sing-box
+  [5/5] 申请证书、启动服务并健康检查
 
-请确认域名或 IP 已指向本服务器，且 TCP 80 可验证。
-作者那么羡慕你，仅供学习自用，请勿随意传播。
-------------------------------------------------------------
+  适用 Alpine、Debian、Ubuntu；建议单核 512 MB 以上内存。
+  请确认域名或 IP 已指向本服务器，且 TCP 80 可验证。
++----------------------------------------------------------+
+  作者那么羡慕你，仅供学习自用，请勿随意传播。
++----------------------------------------------------------+
 EOF
 }
 
@@ -86,13 +89,9 @@ choose_admin(){
   step '3 / 5' '设置管理员账号和密码'
   while [ -z "$ADMIN_USER" ]; do ADMIN_USER=$(ask '管理员账号： '); done
   while [ -z "$ADMIN_PASSWORD" ]; do
-    printf '管理员密码： '; stty -echo; IFS= read -r ADMIN_PASSWORD || true; stty echo; printf '\n'
+    ADMIN_PASSWORD=$(ask '管理员密码（输入内容会显示，仅输入一次）： ')
     [ -n "$ADMIN_PASSWORD" ] || printf '密码不能为空。\n'
   done
-  if [ -z "${KOTAUI_NONINTERACTIVE:-}" ]; then
-    printf '再次输入管理员密码： '; stty -echo; IFS= read -r second || true; stty echo; printf '\n'
-    [ "$ADMIN_PASSWORD" = "$second" ] || fail '两次密码不一致。'
-  fi
 }
 
 install_packages(){

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -188,5 +189,75 @@ func TestSupportedInboundValidation(t *testing.T) {
 	reality := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": "private", "publicKey": "public"}
 	if got := request(t, h, http.MethodPost, "/api/inbounds", reality, c).Code; got != http.StatusCreated {
 		t.Fatalf("reality %d", got)
+	}
+}
+
+func TestProtocolLinksAndClientEdit(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	inbounds := []map[string]any{
+		{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": "private", "publicKey": "public", "shortId": "abcdef12"},
+		{"name": "hy2", "type": "hysteria2", "port": 24445, "sni": "example.test"},
+		{"name": "ss", "type": "shadowsocks2022", "port": 24446},
+	}
+	ids := make([]string, 0, len(inbounds))
+	for _, input := range inbounds {
+		w := request(t, h, http.MethodPost, "/api/inbounds", input, cookie)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("inbound %v: %d %s", input["type"], w.Code, w.Body.String())
+		}
+		var inbound config.Inbound
+		_ = json.Unmarshal(w.Body.Bytes(), &inbound)
+		ids = append(ids, inbound.ID)
+	}
+	ss := a.store.Snapshot().Inbounds[2]
+	if ss.ServerPassword == "" || !validSS2022Key(ss.ServerPassword) {
+		t.Fatalf("invalid ss2022 server key: %q", ss.ServerPassword)
+	}
+	w := request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": "alice", "inboundIds": ids}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("client create: %d %s", w.Code, w.Body.String())
+	}
+	var client config.Client
+	_ = json.Unmarshal(w.Body.Bytes(), &client)
+	w = request(t, h, http.MethodPatch, "/api/clients/"+client.ID, map[string]any{"username": "alice2", "note": "phone", "inboundIds": ids[:2], "maxOnlineIps": 2}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("client edit: %d %s", w.Code, w.Body.String())
+	}
+	if got := a.store.Snapshot().Clients[0]; got.Username != "alice2" || got.Note != "phone" || len(got.InboundIDs) != 2 {
+		t.Fatalf("client edit not applied: %#v", got)
+	}
+	w = request(t, h, http.MethodGet, "/kota-sub/alice2", nil, nil)
+	raw := w.Body.String()
+	if w.Code != http.StatusOK || !strings.Contains(raw, "vless://") || !strings.Contains(raw, "hysteria2://") || !strings.Contains(raw, "ss://") {
+		t.Fatalf("raw subscription: %d %s", w.Code, raw)
+	}
+	for _, line := range strings.Split(raw, "\n") {
+		if strings.HasPrefix(line, "ss://") {
+			encoded := line[len("ss://"):strings.Index(line, "@")]
+			decoded, err := base64.RawStdEncoding.DecodeString(encoded)
+			if err != nil || !strings.HasPrefix(string(decoded), "2022-blake3-aes-256-gcm:") {
+				t.Fatalf("invalid ss2022 URI encoding: %s", line)
+			}
+		}
+	}
+	browser := httptest.NewRequest(http.MethodGet, "/kota-sub/alice2", nil)
+	browser.Header.Set("user-agent", "Mozilla/5.0")
+	page := httptest.NewRecorder()
+	h.ServeHTTP(page, browser)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "KotaUI") || strings.Contains(page.Body.String(), "vless://") {
+		t.Fatalf("browser subscription page: %d %s", page.Code, page.Body.String())
+	}
+}
+
+func TestIPv6ShareSwitchRequiresPublicAddress(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "v6", "type": "hysteria2", "port": 24447, "sni": "example.test", "useIPv6": true}, cookie)
+	if w.Code == http.StatusCreated {
+		t.Log("test environment has a public IPv6 address; IPv6 inbound created")
+	}
+	if w.Code != http.StatusBadRequest && w.Code != http.StatusCreated {
+		t.Fatalf("unexpected IPv6 status: %d %s", w.Code, w.Body.String())
 	}
 }

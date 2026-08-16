@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,36 +45,91 @@ func (a *App) sniTest(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	host, err := normalizeSNIHost(request.Host)
+	result, err := a.testSNI(r.Context(), request)
 	if err != nil {
 		badRequest(w, err)
 		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// sniTestAll tests the built-in/configured candidates from the current VPS. The
+// list is intentionally server-side only so the endpoint cannot become a general
+// purpose internal-network probing endpoint.
+func (a *App) sniTestAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	candidates := a.store.Snapshot().Settings.RealityCandidates
+	if len(candidates) == 0 {
+		writeJSON(w, http.StatusOK, []sniTestResult{})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	results := make([]sniTestResult, len(candidates))
+	sem := make(chan struct{}, 3)
+	var group sync.WaitGroup
+	for i, candidate := range candidates {
+		group.Add(1)
+		go func(index int, host string, port int) {
+			defer group.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results[index] = sniTestResult{Host: host, Port: port, Message: "不建议使用：批量测试超时"}
+				return
+			}
+			defer func() { <-sem }()
+			result, err := a.testSNI(ctx, sniTestRequest{Host: host, Port: port})
+			if err != nil {
+				result = sniTestResult{Host: host, Port: port, Message: "不建议使用：" + err.Error()}
+			}
+			results[index] = result
+		}(i, candidate.Host, candidate.Port)
+	}
+	group.Wait()
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].OK != results[j].OK {
+			return results[i].OK
+		}
+		if !results[i].OK {
+			return results[i].Host < results[j].Host
+		}
+		return results[i].LatencyMS < results[j].LatencyMS
+	})
+	writeJSON(w, http.StatusOK, results)
+}
+
+func (a *App) testSNI(parent context.Context, request sniTestRequest) (sniTestResult, error) {
+	host, err := normalizeSNIHost(request.Host)
+	if err != nil {
+		return sniTestResult{}, err
 	}
 	port := request.Port
 	if port == 0 {
 		port = 443
 	}
 	if port < 1 || port > 65535 {
-		badRequest(w, errors.New("端口必须在 1–65535 之间"))
-		return
+		return sniTestResult{}, errors.New("端口必须在 1–65535 之间")
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), sniTestTimeout)
+	ctx, cancel := context.WithTimeout(parent, sniTestTimeout)
 	defer cancel()
 	result, err := a.sniProbe(ctx, host, port)
 	result.Host, result.Port = host, port
 	if err != nil {
 		result.OK = false
 		result.Message = "不建议使用：" + err.Error()
-		writeJSON(w, http.StatusOK, result)
-		return
+		return result, nil
 	}
 	result.OK = true
 	if result.LatencyMS <= 250 {
-		result.Message = "推荐使用：TLS 握手与证书校验通过"
+		result.Message = "推荐使用"
 	} else {
-		result.Message = "可用：TLS 握手与证书校验通过，延迟较高"
+		result.Message = "可用，延迟较高"
 	}
-	writeJSON(w, http.StatusOK, result)
+	return result, nil
 }
 
 func probeSNI(ctx context.Context, host string, port int) (sniTestResult, error) {

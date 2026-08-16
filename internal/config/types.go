@@ -66,6 +66,7 @@ type Inbound struct {
 	DownMbps        int    `json:"downMbps,omitempty"`
 	ObfsPassword    string `json:"obfsPassword,omitempty"`
 	ServerPassword  string `json:"serverPassword,omitempty"`
+	UseIPv6         bool   `json:"useIPv6,omitempty"`
 }
 
 type Client struct {

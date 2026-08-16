@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -60,6 +61,9 @@ func New(runtime config.Runtime) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := normalizeProtocolSecrets(s); err != nil {
+		return nil, err
+	}
 	if err := proxy.Write(s.Snapshot(), runtime); err != nil {
 		return nil, err
 	}
@@ -83,6 +87,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
 	mux.HandleFunc("/api/config/validate", a.auth(a.validateConfig))
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
+	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
 	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
@@ -188,6 +193,12 @@ func (a *App) state(w http.ResponseWriter, _ *http.Request) {
 func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	s := a.store.Snapshot()
 	active, totalUsed, monthlyUsed := 0, int64(0), int64(0)
+	ports := make([]int, 0, len(s.Inbounds))
+	for _, inbound := range s.Inbounds {
+		if inbound.Enabled {
+			ports = append(ports, inbound.Port)
+		}
+	}
 	for _, client := range s.Clients {
 		if client.Active(time.Now()) {
 			active++
@@ -195,20 +206,24 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		totalUsed += client.UsedBytes
 		monthlyUsed += client.MonthlyUsedBytes
 	}
+	certificate := certificateStatus(a.runtime.TLSCert)
+	services := []map[string]any{
+		{"id": "panel", "name": "KotaUI 面板", "running": serviceRunning("kotaui")},
+		{"id": "singbox", "name": "sing-box 核心", "running": serviceRunning("kotaui-singbox")},
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"metrics":       system.Collect(a.runtime.DataDir),
-		"activeClients": active,
-		"inboundCount":  len(s.Inbounds),
-		"clientCount":   len(s.Clients),
-		"totalUsed":     totalUsed,
-		"monthlyUsed":   monthlyUsed,
-		"panelURL":      a.panelURL(),
-		"version":       config.Version,
-		"certificate":   certificateStatus(a.runtime.TLSCert),
-		"services": []map[string]any{
-			{"id": "panel", "name": "KotaUI 面板", "running": serviceRunning("kotaui")},
-			{"id": "singbox", "name": "sing-box 核心", "running": serviceRunning("kotaui-singbox")},
-		},
+		"metrics":             system.Collect(a.runtime.DataDir, ports),
+		"activeClients":       active,
+		"inboundCount":        len(s.Inbounds),
+		"clientCount":         len(s.Clients),
+		"totalUsed":           totalUsed,
+		"monthlyUsed":         monthlyUsed,
+		"panelURL":            a.panelURL(),
+		"subscriptionBaseURL": a.subscriptionBaseURL(s.Settings.SubscriptionPath),
+		"version":             config.Version,
+		"certificate":         certificate,
+		"services":            services,
+		"healthHints":         dashboardHints(s, certificate, services),
 	})
 }
 
@@ -333,8 +348,75 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, a.store.Snapshot().Clients)
+	case http.MethodPatch:
+		var incoming config.Client
+		if err := decodeJSON(r, &incoming); err != nil {
+			badRequest(w, err)
+			return
+		}
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients"), "/")
+		if len(parts) < 2 || parts[1] == "" {
+			badRequest(w, errors.New("客户端 ID 不能为空"))
+			return
+		}
+		id := parts[1]
+		if !usernamePattern.MatchString(incoming.Username) || len(incoming.InboundIDs) == 0 {
+			badRequest(w, errors.New("客户端用户名或入站绑定无效"))
+			return
+		}
+		if err := a.mutate(func(s *config.State) error {
+			var target *config.Client
+			for i := range s.Clients {
+				if s.Clients[i].ID == id {
+					target = &s.Clients[i]
+					break
+				}
+			}
+			if target == nil {
+				return errors.New("客户端不存在")
+			}
+			for _, other := range s.Clients {
+				if other.ID != id && other.Username == incoming.Username {
+					return errors.New("用户名已存在")
+				}
+			}
+			types := make(map[string]string, len(s.Inbounds))
+			for _, inbound := range s.Inbounds {
+				types[inbound.ID] = inbound.Type
+			}
+			credentials := map[string]string{}
+			for _, inboundID := range incoming.InboundIDs {
+				protocol, exists := types[inboundID]
+				if !exists {
+					return errors.New("选择的入站不存在")
+				}
+				secret := target.Credentials[inboundID]
+				if secret == "" {
+					if protocol == "shadowsocks2022" {
+						secret = config.RandomBase64(32)
+					} else {
+						secret = config.RandomToken(16)
+					}
+				}
+				credentials[inboundID] = secret
+			}
+			target.Username = incoming.Username
+			target.Note = incoming.Note
+			target.InboundIDs = incoming.InboundIDs
+			target.Credentials = credentials
+			target.TotalLimitBytes = incoming.TotalLimitBytes
+			target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
+			target.ExpiresAt = incoming.ExpiresAt
+			target.MaxOnlineIPs = incoming.MaxOnlineIPs
+			return nil
+		}); err != nil {
+			badRequest(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	case http.MethodPost:
 		var client config.Client
+
 		if err := decodeJSON(r, &client); err != nil {
 			badRequest(w, err)
 			return
@@ -386,6 +468,19 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients/"), "/")
+	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPatch {
+		var incoming config.Client
+		if err := decodeJSON(r, &incoming); err != nil {
+			badRequest(w, err)
+			return
+		}
+		if err := a.updateClient(parts[0], incoming); err != nil {
+			badRequest(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
 	if len(parts) < 2 || r.Method != http.MethodPost {
 		methodNotAllowed(w)
 		return
@@ -423,6 +518,58 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (a *App) updateClient(id string, incoming config.Client) error {
+	if !usernamePattern.MatchString(incoming.Username) || len(incoming.InboundIDs) == 0 {
+		return errors.New("客户端用户名或入站绑定无效")
+	}
+	return a.mutate(func(s *config.State) error {
+		var target *config.Client
+		for i := range s.Clients {
+			if s.Clients[i].ID == id {
+				target = &s.Clients[i]
+				break
+			}
+		}
+		if target == nil {
+			return errors.New("客户端不存在")
+		}
+		for _, other := range s.Clients {
+			if other.ID != id && other.Username == incoming.Username {
+				return errors.New("用户名已存在")
+			}
+		}
+		types := make(map[string]string, len(s.Inbounds))
+		for _, inbound := range s.Inbounds {
+			types[inbound.ID] = inbound.Type
+		}
+		credentials := map[string]string{}
+		for _, inboundID := range incoming.InboundIDs {
+			protocol, exists := types[inboundID]
+			if !exists {
+				return errors.New("选择的入站不存在")
+			}
+			secret := target.Credentials[inboundID]
+			if secret == "" {
+				if protocol == "shadowsocks2022" {
+					secret = config.RandomBase64(32)
+				} else {
+					secret = config.RandomToken(16)
+				}
+			}
+			credentials[inboundID] = secret
+		}
+		target.Username = incoming.Username
+		target.Note = incoming.Note
+		target.InboundIDs = incoming.InboundIDs
+		target.Credentials = credentials
+		target.TotalLimitBytes = incoming.TotalLimitBytes
+		target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
+		target.ExpiresAt = incoming.ExpiresAt
+		target.MaxOnlineIPs = incoming.MaxOnlineIPs
+		return nil
+	})
 }
 
 func (a *App) settings(w http.ResponseWriter, r *http.Request) {
@@ -472,18 +619,38 @@ func (a *App) validateConfig(w http.ResponseWriter, _ *http.Request) {
 
 func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 	username := strings.Trim(path.Base(r.URL.Path), "/")
-	links, ok := proxy.Subscription(a.store.Snapshot(), a.runtime, username)
+	state := a.store.Snapshot()
+	links, ok := proxy.Subscription(state, a.runtime, username)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
 	if strings.Contains(strings.ToLower(r.Header.Get("user-agent")), "mozilla") {
+		var client config.Client
+		for _, value := range state.Clients {
+			if value.Username == username {
+				client = value
+				break
+			}
+		}
 		w.Header().Set("content-type", "text/html; charset=utf-8")
-		_, _ = fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><title>KotaUI 订阅</title><h1>KotaUI</h1><p>订阅状态正常。</p><pre>%s</pre><p>作者那么羡慕你，仅供学习自用，请勿随意传播。</p>", htmlEscape(links))
+		_, _ = io.WriteString(w, a.subscriptionPage(client, strings.Count(links, "\n")+1, a.subscriptionBaseURL(state.Settings.SubscriptionPath)+"/"+username))
 		return
 	}
 	w.Header().Set("content-type", "text/plain; charset=utf-8")
 	_, _ = io.WriteString(w, links)
+}
+
+func (a *App) subscriptionPage(client config.Client, linkCount int, subscriptionURL string) string {
+	limit := "无限制"
+	if client.TotalLimitBytes > 0 {
+		limit = formatBytes(client.TotalLimitBytes)
+	}
+	expires := client.ExpiresAt
+	if expires == "" {
+		expires = "无到期日"
+	}
+	return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KotaUI 订阅</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#182033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:620px;margin:0 auto;padding:28px 16px 42px}.brand{display:flex;align-items:center;gap:12px;margin:4px 4px 20px}.logo{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#466df1,#6d51d8);color:#fff;display:grid;place-items:center;font-size:22px;box-shadow:0 8px 20px #4569e540}.brand b{display:block;font-size:22px}.brand small{display:block;margin-top:3px;color:#7d8799}.card{background:#fff;border:1px solid #e6eaf1;border-radius:22px;box-shadow:0 12px 30px #1c2d4b0d;overflow:hidden}.head{padding:20px 22px;border-bottom:1px solid #edf0f5;display:flex;justify-content:space-between;align-items:center}.head b{font-size:20px}.badge{padding:6px 10px;border-radius:999px;background:#eaf8f2;color:#17966d;font-size:13px}.table{padding:14px 20px}.row{display:grid;grid-template-columns:110px 1fr;border-bottom:1px solid #edf0f5;padding:14px 0;gap:10px}.row:last-child{border:0}.row span{color:#7d8799}.usage{margin:18px 20px;padding:18px;border-radius:16px;background:linear-gradient(135deg,#eef4ff,#f8f5ff);display:flex;justify-content:space-between;align-items:center}.usage b{font-size:25px}.sub{margin:20px;padding:16px;border:1px solid #e5eaf3;border-radius:16px}.sub label{display:block;color:#7d8799;font-size:13px;margin-bottom:8px}.url{font-size:13px;word-break:break-all;line-height:1.6;color:#273454}.copy{margin-top:12px;width:100%;border:0;border-radius:12px;padding:12px;background:#3569ee;color:#fff;font-size:15px}.foot{text-align:center;color:#8b94a4;font-size:13px;margin-top:22px;line-height:1.7}@media(max-width:420px){.wrap{padding:18px 12px}.row{grid-template-columns:92px 1fr}.usage b{font-size:21px}}</style><body><main class="wrap"><header class="brand"><div class="logo">◌</div><div><b>KotaUI</b><small>轻量 sing-box 订阅服务 · 作者：那么羡慕你</small></div></header><section class="card"><div class="head"><b>订阅信息</b><span class="badge">状态正常</span></div><div class="table"><div class="row"><span>订阅 ID</span><strong>` + htmlEscape(client.Username) + `</strong></div><div class="row"><span>订阅状态</span><strong>正常 · ` + strconv.Itoa(linkCount) + ` 个节点</strong></div><div class="row"><span>累计使用</span><strong>` + formatBytes(client.UsedBytes) + `</strong></div><div class="row"><span>本月使用</span><strong>` + formatBytes(client.MonthlyUsedBytes) + `</strong></div><div class="row"><span>总配额</span><strong>` + limit + `</strong></div><div class="row"><span>有效期</span><strong>` + htmlEscape(expires) + `</strong></div></div><div class="usage"><div><small>流量使用情况</small><br><b>` + formatBytes(client.UsedBytes) + ` / ` + limit + `</b></div><span class="badge">订阅可用</span></div><div class="sub"><label>订阅地址</label><div class="url" id="url">` + htmlEscape(subscriptionURL) + `</div><button class="copy" onclick="navigator.clipboard.writeText(document.querySelector('#url').textContent).then(()=>this.textContent='已复制订阅地址').catch(()=>this.textContent='请手动复制')">复制订阅地址</button></div></section><p class="foot">作者那么羡慕你，仅供学习自用，请勿随意传播。</p></main></body></html>`
 }
 
 func (a *App) mutate(fn func(*config.State) error) error {
@@ -518,6 +685,14 @@ func (a *App) panelURL() string {
 		scheme = "https"
 	}
 	return fmt.Sprintf("%s://%s%s", scheme, a.runtime.Domain, a.runtime.PanelPath)
+}
+
+func (a *App) subscriptionBaseURL(subscriptionPath string) string {
+	scheme := "http"
+	if filePresent(a.runtime.TLSCert) {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s:%d%s", scheme, a.runtime.Domain, a.runtime.SubscriptionPort, config.NormalizePath(subscriptionPath))
 }
 
 func (a *App) prepareRealityInbound(v *config.Inbound) error {
@@ -566,11 +741,16 @@ func validateInbound(v *config.Inbound) error {
 	if v.Name == "" {
 		return errors.New("入站名称不能为空")
 	}
-	if v.Listen == "" {
+	if v.UseIPv6 {
+		v.Listen = "::"
+	} else if v.Listen == "" || v.Listen == "::" {
 		v.Listen = "0.0.0.0"
 	}
 	if v.Port < 1024 || v.Port > 65535 {
 		return errors.New("端口必须在 1024–65535 之间")
+	}
+	if v.UseIPv6 && !hasGlobalIPv6() {
+		return errors.New("已开启 IPv6 分享，但服务器未检测到公网 IPv6 地址")
 	}
 	switch v.Type {
 	case "reality":
@@ -595,13 +775,69 @@ func validateInbound(v *config.Inbound) error {
 		}
 	case "shadowsocks2022":
 		if v.ServerPassword == "" {
-			v.ServerPassword = config.RandomToken(32)
+			v.ServerPassword = config.RandomBase64(32)
+		}
+		if !validSS2022Key(v.ServerPassword) {
+			return errors.New("Shadowsocks 2022 服务端密钥必须是 32 字节 Base64")
 		}
 	default:
 		return errors.New("仅支持 REALITY、Hysteria 2、Shadowsocks 2022")
 	}
 	return nil
 }
+func validSS2022Key(value string) bool {
+	decoded, err := base64.RawStdEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32
+}
+
+func normalizeProtocolSecrets(s *store.Store) error {
+	return s.Update(func(state *config.State) error {
+		types := make(map[string]string, len(state.Inbounds))
+		for _, inbound := range state.Inbounds {
+			types[inbound.ID] = inbound.Type
+		}
+		for i := range state.Inbounds {
+			if state.Inbounds[i].Type == "shadowsocks2022" && !validSS2022Key(state.Inbounds[i].ServerPassword) {
+				state.Inbounds[i].ServerPassword = config.RandomBase64(32)
+			}
+		}
+		for i := range state.Clients {
+			for id := range state.Clients[i].Credentials {
+				if types[id] == "shadowsocks2022" && !validSS2022Key(state.Clients[i].Credentials[id]) {
+					state.Clients[i].Credentials[id] = config.RandomBase64(32)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func hasGlobalIPv6() bool {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, iface := range interfaces {
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			var ip net.IP
+			switch value := address.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			if ip != nil && ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func decodeJSON(r *http.Request, target any) error {
 	defer r.Body.Close()
 	return json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(target)

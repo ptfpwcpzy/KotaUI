@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -39,7 +40,8 @@ func Write(state config.State, runtime config.Runtime) error {
 					users = append(users, map[string]any{"name": client.Username, "password": secret})
 				}
 			}
-			tls := map[string]any{"enabled": true, "certificate_path": runtime.TLSCert, "key_path": runtime.TLSKey, "server_name": inbound.SNI}
+			tls := map[string]any{"enabled": true, "certificate_path": runtime.TLSCert, "key_path": runtime.TLSKey, "server_name": runtime.Domain}
+
 			entry := map[string]any{"type": "hysteria2", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "users": users, "tls": tls, "up_mbps": inbound.UpMbps, "down_mbps": inbound.DownMbps}
 			if inbound.ObfsPassword != "" {
 				entry["obfs"] = map[string]any{"type": "salamander", "password": inbound.ObfsPassword}
@@ -106,16 +108,66 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 			label := urlLabel(inbound.Name, client.Username)
 			switch inbound.Type {
 			case "reality":
-				links = append(links, fmt.Sprintf("vless://%s@%s:%d?encryption=none&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp#%s", secret, runtime.Domain, inbound.Port, inbound.SNI, inbound.PublicKey, inbound.ShortID, label))
+				host := shareHost(inbound, runtime)
+				query := url.Values{}
+
+				query.Set("encryption", "none")
+				query.Set("security", "reality")
+				query.Set("flow", "xtls-rprx-vision")
+				query.Set("sni", inbound.SNI)
+				query.Set("fp", "chrome")
+				query.Set("pbk", inbound.PublicKey)
+				query.Set("sid", inbound.ShortID)
+				query.Set("type", "tcp")
+				query.Set("headerType", "none")
+				links = append(links, fmt.Sprintf("vless://%s@%s:%d?%s#%s", url.PathEscape(secret), host, inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "hysteria2":
-				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d?sni=%s#%s", secret, runtime.Domain, inbound.Port, inbound.SNI, label))
+				query := url.Values{"sni": []string{runtime.Domain}, "insecure": []string{"0"}, "obfs": []string{"none"}}
+				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "shadowsocks2022":
 				encoded := base64.RawStdEncoding.EncodeToString([]byte("2022-blake3-aes-256-gcm:" + secret))
-				links = append(links, fmt.Sprintf("ss://%s@%s:%d#%s", encoded, runtime.Domain, inbound.Port, url.QueryEscape(label)))
+				links = append(links, fmt.Sprintf("ss://%s@%s:%d#%s", encoded, shareHost(inbound, runtime), inbound.Port, url.QueryEscape(label)))
+
 			}
 		}
 	}
 	return strings.Join(links, "\n"), true
+}
+
+func shareHost(inbound config.Inbound, runtime config.Runtime) string {
+	if !inbound.UseIPv6 {
+		return runtime.Domain
+	}
+	if ip := publicIPv6(); ip != "" {
+		return "[" + ip + "]"
+	}
+	return runtime.Domain
+}
+
+func publicIPv6() string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range interfaces {
+		addresses, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			var ip net.IP
+			switch value := address.(type) {
+			case *net.IPNet:
+				ip = value.IP
+			case *net.IPAddr:
+				ip = value.IP
+			}
+			if ip != nil && ip.To4() == nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() {
+				return ip.String()
+			}
+		}
+	}
+	return ""
 }
 
 func urlLabel(parts ...string) string {
