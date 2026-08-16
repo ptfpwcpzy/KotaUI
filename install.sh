@@ -59,7 +59,7 @@ choose_certificate(){
   if [ -z "$CERT_EMAIL" ]; then
     token=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)
     token=${token:-$(date +%s)}
-    CERT_EMAIL="kotaui-${token}@example.com"
+    CERT_EMAIL="kotaui-${token}@gmail.com"
   fi
 }
 
