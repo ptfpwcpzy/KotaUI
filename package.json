@@ -1,0 +1,11 @@
+{
+  "name": "kotaui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A self-hosted sing-box management panel for Alpine, Debian and Ubuntu.",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test"
+  }
+}
