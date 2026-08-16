@@ -283,8 +283,9 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 		if strings.HasPrefix(line, "ss://") {
 			encoded := line[len("ss://"):strings.Index(line, "@")]
 			decoded, err := base64.RawStdEncoding.DecodeString(encoded)
-			if err != nil || !strings.HasPrefix(string(decoded), "2022-blake3-aes-256-gcm:") {
-				t.Fatalf("invalid ss2022 URI encoding: %s", line)
+			parts := strings.SplitN(string(decoded), ":", 3)
+			if err != nil || len(parts) != 3 || parts[0] != "2022-blake3-aes-256-gcm" || parts[1] != ss.ServerPassword || parts[2] != client.Credentials[ids[2]] {
+				t.Fatalf("invalid SS2022 multi-user URI encoding: %s", line)
 			}
 		}
 	}

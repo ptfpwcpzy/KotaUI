@@ -125,7 +125,8 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 				query := url.Values{"sni": []string{runtime.Domain}, "insecure": []string{"0"}, "obfs": []string{"none"}}
 				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "shadowsocks2022":
-				encoded := base64.RawStdEncoding.EncodeToString([]byte("2022-blake3-aes-256-gcm:" + secret))
+				// SS2022 multi-user mode requires the server EIH key followed by the user key.
+				encoded := base64.RawStdEncoding.EncodeToString([]byte("2022-blake3-aes-256-gcm:" + inbound.ServerPassword + ":" + secret))
 				links = append(links, fmt.Sprintf("ss://%s@%s:%d#%s", encoded, shareHost(inbound, runtime), inbound.Port, url.QueryEscape(label)))
 
 			}

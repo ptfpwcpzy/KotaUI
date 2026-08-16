@@ -506,8 +506,16 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 				c.UsedBytes = 0
 				c.MonthlyUsedBytes = 0
 			case "rotate":
-				for k := range c.Credentials {
-					c.Credentials[k] = config.RandomToken(16)
+				types := make(map[string]string, len(s.Inbounds))
+				for _, inbound := range s.Inbounds {
+					types[inbound.ID] = inbound.Type
+				}
+				for inboundID := range c.Credentials {
+					if types[inboundID] == "shadowsocks2022" {
+						c.Credentials[inboundID] = config.RandomBase64(32)
+					} else {
+						c.Credentials[inboundID] = config.RandomToken(16)
+					}
 				}
 			case "delete":
 				s.Clients = append(s.Clients[:i], s.Clients[i+1:]...)
