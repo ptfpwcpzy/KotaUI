@@ -4,17 +4,20 @@ set -eu
 PREFIX=${KOTAUI_PREFIX:-/opt/kotaui}
 DATA_DIR=${KOTAUI_DATA_DIR:-/var/lib/kotaui}
 BIN_DIR=${KOTAUI_BIN_DIR:-/usr/local/bin}
-REPO_URL=${KOTAUI_REPO_URL:-https://github.com/ptfpwcpzy/KotaUI.git}
+REPO_URL=${KOTAUI_REPO_URL:-https://github.com/ptfpwcpzy/KotaUItest.git}
 PANEL_PORT=${KOTAUI_PANEL_PORT:-1108}
 SUB_PORT=${KOTAUI_SUBSCRIPTION_PORT:-1109}
 STATS_PORT=${KOTAUI_STATS_PORT:-9090}
 CONFIGURE_FIREWALL=${KOTAUI_CONFIGURE_FIREWALL:-0}
+MANAGE_FIREWALL=${KOTAUI_MANAGE_FIREWALL:-$CONFIGURE_FIREWALL}
 INSTALL_SINGBOX=${KOTAUI_INSTALL_SINGBOX:-1}
 BUILD_SINGBOX_V2RAY_API=${KOTAUI_BUILD_SINGBOX_V2RAY_API:-1}
 SINGBOX_VERSION=${KOTAUI_SINGBOX_VERSION:-v1.13.18}
 ISSUE_CERT=${KOTAUI_ISSUE_CERT:-0}
 CERT_DOMAIN=${KOTAUI_CERT_DOMAIN:-}
 CERT_EMAIL=${KOTAUI_CERT_EMAIL:-}
+ADMIN_USER=${KOTAUI_ADMIN_USER:-admin}
+ADMIN_PASSWORD=${KOTAUI_ADMIN_PASSWORD:-}
 log(){ printf '[kota] %s\n' "$*"; }
 fail(){ printf '[kota] ERROR: %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail '请以 root 身份运行安装脚本。'
@@ -24,6 +27,9 @@ if [ -r /etc/os-release ]; then . /etc/os-release; else fail '无法识别操作
 case "${ID:-}" in alpine|debian|ubuntu) ;; *) fail "暂不支持系统: ${ID:-unknown}";; esac
 valid_port(){ case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]; }
 valid_port "$PANEL_PORT" || fail "面板端口无效: $PANEL_PORT"
+case "$ADMIN_USER" in ''|*[!A-Za-z0-9_-]*) fail '管理员账号只能包含字母、数字、下划线和连字符。';; esac
+if [ -z "$ADMIN_PASSWORD" ]; then ADMIN_PASSWORD=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9_-' | cut -c1-20); fi
+[ "${#ADMIN_PASSWORD}" -ge 12 ] || fail '管理员密码至少需要 12 个字符。'
 valid_port "$SUB_PORT" || fail "订阅端口无效: $SUB_PORT"
 [ "$PANEL_PORT" != "$SUB_PORT" ] || fail '面板端口和订阅端口不能相同。'
 install_runtime(){
@@ -56,13 +62,18 @@ install_singbox(){
 }
 
 command -v node >/dev/null 2>&1 || install_runtime
+command -v npm >/dev/null 2>&1 || install_runtime
 command -v git >/dev/null 2>&1 || install_runtime
 command -v openssl >/dev/null 2>&1 || install_runtime
 command -v node >/dev/null 2>&1 || fail 'Node.js 安装失败。'
+command -v npm >/dev/null 2>&1 || fail 'npm 安装失败。'
 NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
 [ "$NODE_MAJOR" -ge 18 ] 2>/dev/null || fail "Node.js 版本过低: $NODE_MAJOR"
 
 mkdir -p "$PREFIX/server" "$PREFIX/public" "$PREFIX/service" "$PREFIX/proto" "$DATA_DIR" "$BIN_DIR"
+umask 077
+printf 'KOTAUI_ADMIN_USER=%s\nKOTAUI_ADMIN_PASSWORD=%s\n' "$ADMIN_USER" "$ADMIN_PASSWORD" > "$DATA_DIR/admin.env"
+chmod 600 "$DATA_DIR/admin.env"
 if [ -n "${KOTAUI_SOURCE_DIR:-}" ]; then
   SRC=$KOTAUI_SOURCE_DIR
   [ -f "$SRC/server/index.mjs" ] || fail "源码目录无效: $SRC"
@@ -111,11 +122,11 @@ fi
 # 让服务进程读取指定面板端口，并保留统计 API 仅监听回环地址。
 if [ "${ID:-}" = alpine ]; then
   mkdir -p /etc/init.d
-  sed "s#environment=\"NODE_ENV=production KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json\"#environment=\"NODE_ENV=production KOTAUI_PORT=$PANEL_PORT KOTAUI_SUBSCRIPTION_PORT=$SUB_PORT KOTAUI_STATS_PORT=$STATS_PORT KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json\"#" "$PREFIX/service/kotaui.openrc" > /etc/init.d/kotaui
+  sed "s#environment=\"NODE_ENV=production KOTAUI_ADMIN_ENV=/var/lib/kotaui/admin.env KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json\"#environment=\"NODE_ENV=production KOTAUI_ADMIN_ENV=/var/lib/kotaui/admin.env KOTAUI_PORT=$PANEL_PORT KOTAUI_SUBSCRIPTION_PORT=$SUB_PORT KOTAUI_STATS_PORT=$STATS_PORT KOTAUI_MANAGE_FIREWALL=$MANAGE_FIREWALL KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json\"#" "$PREFIX/service/kotaui.openrc" > /etc/init.d/kotaui
   chmod 755 /etc/init.d/kotaui
   rc-update add kotaui default >/dev/null 2>&1 || true
 else
-  sed "s#Environment=NODE_ENV=production#Environment=NODE_ENV=production\\nEnvironment=KOTAUI_PORT=$PANEL_PORT\\nEnvironment=KOTAUI_SUBSCRIPTION_PORT=$SUB_PORT#" "$PREFIX/service/kotaui.service" > /etc/systemd/system/kotaui.service
+  sed "s#Environment=NODE_ENV=production#Environment=NODE_ENV=production\\nEnvironment=KOTAUI_PORT=$PANEL_PORT\\nEnvironment=KOTAUI_SUBSCRIPTION_PORT=$SUB_PORT\\nEnvironment=KOTAUI_MANAGE_FIREWALL=$MANAGE_FIREWALL#" "$PREFIX/service/kotaui.service" > /etc/systemd/system/kotaui.service
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl enable kotaui >/dev/null 2>&1 || true
   cp "$PREFIX/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service
@@ -157,4 +168,6 @@ if [ "${ID:-}" = alpine ]; then rc-service kotaui start >/dev/null 2>&1 || true;
 log "安装完成: $PREFIX"
 log "唤醒菜单: kota"
 log "服务端口: $PANEL_PORT；订阅端口: $SUB_PORT"
+log "管理员账号: $ADMIN_USER"
+log "管理员密码: $ADMIN_PASSWORD"
 log "统计 API 仅监听 127.0.0.1:$STATS_PORT"

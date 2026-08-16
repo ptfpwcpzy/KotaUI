@@ -8,7 +8,7 @@ command_user="root:root"
 supervisor="supervise-daemon"
 output_log="/var/log/kotaui.log"
 error_log="/var/log/kotaui.err"
-environment="NODE_ENV=production KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json"
+environment="NODE_ENV=production KOTAUI_ADMIN_ENV=/var/lib/kotaui/admin.env KOTAUI_DATA_DIR=/var/lib/kotaui KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json"
 respawn_delay=5
 
  depend() {

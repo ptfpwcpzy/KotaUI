@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/opt/kotaui
+EnvironmentFile=-/var/lib/kotaui/admin.env
 Environment=NODE_ENV=production
 Environment=KOTAUI_DATA_DIR=/var/lib/kotaui
 Environment=KOTAUI_SINGBOX_CONFIG=/var/lib/kotaui/sing-box/config.json
