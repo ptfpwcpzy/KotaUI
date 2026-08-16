@@ -29,10 +29,16 @@ type Runtime struct {
 }
 
 type State struct {
-	Settings Settings  `json:"settings"`
-	Inbounds []Inbound `json:"inbounds"`
-	Clients  []Client  `json:"clients"`
-	Created  time.Time `json:"created"`
+	Settings        Settings                   `json:"settings"`
+	Inbounds        []Inbound                  `json:"inbounds"`
+	Clients         []Client                   `json:"clients"`
+	TrafficCounters map[string]TrafficCounters `json:"trafficCounters,omitempty"`
+	Created         time.Time                  `json:"created"`
+}
+
+type TrafficCounters struct {
+	Upload   int64 `json:"upload"`
+	Download int64 `json:"download"`
 }
 
 type Settings struct {
@@ -78,6 +84,8 @@ type Client struct {
 	TotalLimitBytes   int64             `json:"totalLimitBytes"`
 	MonthlyLimitBytes int64             `json:"monthlyLimitBytes"`
 	UsedBytes         int64             `json:"usedBytes"`
+	UploadBytes       int64             `json:"uploadBytes"`
+	DownloadBytes     int64             `json:"downloadBytes"`
 	MonthlyUsedBytes  int64             `json:"monthlyUsedBytes"`
 	Month             string            `json:"month"`
 	ExpiresAt         string            `json:"expiresAt,omitempty"`
@@ -94,7 +102,7 @@ func DefaultState(domain string) State {
 		{Host: "www.adobe.com", Port: 443}, {Host: "www.ibm.com", Port: 443},
 		{Host: "www.oracle.com", Port: 443}, {Host: "www.mozilla.org", Port: 443},
 	}
-	return State{Settings: Settings{PanelName: "KotaUI", TitleEnabled: true, Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates}, Inbounds: []Inbound{}, Clients: []Client{}, Created: time.Now().UTC()}
+	return State{Settings: Settings{PanelName: "KotaUI", TitleEnabled: true, Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
 }
 
 func NewID() string            { return randomHex(16) }

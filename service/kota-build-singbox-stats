@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+DESTINATION=${1:-/opt/kotaui/sing-box-v2ray}
+VERSION=${KOTAUI_SINGBOX_VERSION:-v1.13.18}
+SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git}
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT INT TERM
+
+[ "$(id -u)" -eq 0 ] || { printf '%s\n' '构建兼容 sing-box 核心需要 root 权限。' >&2; exit 1; }
+command -v git >/dev/null 2>&1 || { printf '%s\n' '未找到 git，无法构建兼容 sing-box 核心。' >&2; exit 1; }
+command -v go >/dev/null 2>&1 || { printf '%s\n' '未找到 Go，无法构建兼容 sing-box 核心。' >&2; exit 1; }
+
+install -d -m 755 "$(dirname "$DESTINATION")"
+if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
+  [ -x "$KOTAUI_SINGBOX_STATS_CORE" ] || { printf '%s\n' '指定的统计核心不可执行。' >&2; exit 1; }
+  install -m 755 "$KOTAUI_SINGBOX_STATS_CORE" "$DESTINATION"
+else
+  printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
+  git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
+  GOMAXPROCS=1 CGO_ENABLED=0 go build -tags with_v2ray_api -trimpath -ldflags='-s -w' -o "$WORKDIR/sing-box" "$WORKDIR/source/cmd/sing-box"
+  install -m 755 "$WORKDIR/sing-box" "$DESTINATION"
+fi
+
+CHECK_CONFIG="$WORKDIR/check.json"
+cat > "$CHECK_CONFIG" <<'EOF'
+{
+  "experimental": {
+    "v2ray_api": {
+      "listen": "127.0.0.1:19090",
+      "stats": {"enabled": true, "users": ["kotaui-check"]}
+    }
+  },
+  "inbounds": [],
+  "outbounds": [{"type":"direct","tag":"direct"}]
+}
+EOF
+"$DESTINATION" check -c "$CHECK_CONFIG" >/dev/null
+printf '兼容 sing-box 核心已准备完成。\n'

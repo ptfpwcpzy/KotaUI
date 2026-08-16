@@ -39,6 +39,12 @@ func Open(dataDir, domain string) (*Store, error) {
 	if s.data.Clients == nil {
 		s.data.Clients = []config.Client{}
 	}
+	if s.data.TrafficCounters == nil {
+		s.data.TrafficCounters = map[string]config.TrafficCounters{}
+		if err := s.saveLocked(); err != nil {
+			return nil, err
+		}
+	}
 	return s, nil
 }
 

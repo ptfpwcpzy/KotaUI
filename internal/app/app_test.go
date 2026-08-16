@@ -333,8 +333,20 @@ func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create client: %d %s", w.Code, w.Body.String())
 	}
+	if err := a.store.Update(func(state *config.State) error {
+		for i := range state.Clients {
+			if state.Clients[i].Username == "headeruser" {
+				state.Clients[i].UploadBytes = 123
+				state.Clients[i].DownloadBytes = 456
+				state.Clients[i].UsedBytes = 579
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	w = request(t, h, http.MethodGet, "/kota-sub/headeruser", nil, nil)
-	if got := w.Header().Get("Subscription-Userinfo"); !strings.Contains(got, "total=1073741824") || !strings.Contains(got, "expire=") {
+	if got := w.Header().Get("Subscription-Userinfo"); !strings.Contains(got, "upload=123") || !strings.Contains(got, "download=456") || !strings.Contains(got, "total=1073741824") || !strings.Contains(got, "expire=") {
 		t.Fatalf("subscription userinfo header: %q", got)
 	}
 	if got := w.Header().Get("Profile-Title"); got != "KotaUI · headeruser" {

@@ -76,9 +76,12 @@ update(){
   fi
   source=$(mktemp -d)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; printf '下载更新失败。\n' >&2; return 1; fi
+  if ! sh "$source/service/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"; then rm -rf "$source"; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
   if ! (cd "$source" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui); then rm -rf "$source"; printf '编译更新失败。\n' >&2; return 1; fi
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
   install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+  install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+  sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
   if [ "$(manager)" = systemd ]; then
     install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service
     install -m 644 "$source/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service

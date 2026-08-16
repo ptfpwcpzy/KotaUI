@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,7 +58,24 @@ func Write(state config.State, runtime config.Runtime) error {
 			inbounds = append(inbounds, map[string]any{"type": "shadowsocks", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "method": "2022-blake3-aes-256-gcm", "password": inbound.ServerPassword, "users": users})
 		}
 	}
-	root := map[string]any{"log": map[string]any{"level": "warn", "timestamp": true}, "inbounds": inbounds, "outbounds": []map[string]any{{"type": "direct", "tag": "direct"}}}
+	statsUsers := make([]string, 0, len(state.Clients))
+	for _, client := range state.Clients {
+		if client.Username != "" {
+			statsUsers = append(statsUsers, client.Username)
+		}
+	}
+	sort.Strings(statsUsers)
+	root := map[string]any{
+		"log":       map[string]any{"level": "warn", "timestamp": true},
+		"inbounds":  inbounds,
+		"outbounds": []map[string]any{{"type": "direct", "tag": "direct"}},
+		"experimental": map[string]any{
+			"v2ray_api": map[string]any{
+				"listen": fmt.Sprintf("127.0.0.1:%d", runtime.StatsPort),
+				"stats":  map[string]any{"enabled": true, "users": statsUsers},
+			},
+		},
+	}
 	body, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err

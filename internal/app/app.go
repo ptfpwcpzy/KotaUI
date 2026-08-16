@@ -193,9 +193,12 @@ func (a *App) verifySession(value string) bool {
 
 func (a *App) state(w http.ResponseWriter, _ *http.Request) {
 	a.resetMonth()
+	a.syncTraffic()
 	writeJSON(w, http.StatusOK, a.store.Snapshot())
 }
 func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
+	a.resetMonth()
+	a.syncTraffic()
 	s := a.store.Snapshot()
 	active, totalUsed, monthlyUsed := 0, int64(0), int64(0)
 	ports := make([]int, 0, len(s.Inbounds))
@@ -352,6 +355,8 @@ func (a *App) inboundAction(w http.ResponseWriter, r *http.Request) {
 func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		a.resetMonth()
+		a.syncTraffic()
 		writeJSON(w, http.StatusOK, a.store.Snapshot().Clients)
 	case http.MethodPatch:
 		var incoming config.Client
@@ -491,6 +496,9 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, action := parts[0], parts[1]
+	if action == "reset" {
+		a.syncTraffic()
+	}
 	err := a.mutate(func(s *config.State) error {
 		for i := range s.Clients {
 			if s.Clients[i].ID != id {
@@ -504,6 +512,8 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 				c.Paused = false
 			case "reset":
 				c.UsedBytes = 0
+				c.UploadBytes = 0
+				c.DownloadBytes = 0
 				c.MonthlyUsedBytes = 0
 			case "rotate":
 				types := make(map[string]string, len(s.Inbounds))
@@ -632,6 +642,8 @@ func (a *App) validateConfig(w http.ResponseWriter, _ *http.Request) {
 
 func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 	username := strings.Trim(path.Base(r.URL.Path), "/")
+	a.resetMonth()
+	a.syncTraffic()
 	state := a.store.Snapshot()
 	links, ok := proxy.Subscription(state, a.runtime, username)
 	if !ok {
@@ -656,7 +668,7 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client, subscriptionURL string) {
-	fields := []string{"upload=0", "download=" + strconv.FormatInt(client.UsedBytes, 10)}
+	fields := []string{"upload=" + strconv.FormatInt(client.UploadBytes, 10), "download=" + strconv.FormatInt(client.DownloadBytes, 10)}
 	if client.TotalLimitBytes > 0 {
 		fields = append(fields, "total="+strconv.FormatInt(client.TotalLimitBytes, 10))
 	}

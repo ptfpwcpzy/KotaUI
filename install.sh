@@ -135,6 +135,8 @@ install_program(){
   (cd "$SOURCE_DIR" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
   install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+  install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+  "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"
   cat > "$DATA_DIR/runtime.env" <<EOF
 KOTAUI_DATA_DIR=$DATA_DIR
 KOTAUI_LISTEN=0.0.0.0:$PANEL_PORT
@@ -148,7 +150,7 @@ KOTAUI_TLS_KEY=$DATA_DIR/certs/privkey.pem
 KOTAUI_ADMIN_USER=$ADMIN_USER
 KOTAUI_ADMIN_PASSWORD=$ADMIN_PASSWORD
 KOTAUI_CERTBOT_BIN=$CERTBOT_BIN
-KOTAUI_SINGBOX_BIN=$(command -v sing-box)
+KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray
 KOTAUI_SINGBOX_CONFIG=$DATA_DIR/sing-box/config.json
 KOTAUI_MANAGE_SINGBOX=1
 KOTAUI_STATS_PORT=9090
