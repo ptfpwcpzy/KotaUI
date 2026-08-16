@@ -2,31 +2,163 @@
 set -eu
 
 DATA_DIR=${KOTAUI_DATA_DIR:-/var/lib/kotaui}
+PREFIX=${KOTAUI_PREFIX:-/opt/kotaui}
+BIN_DIR=${KOTAUI_BIN_DIR:-/usr/local/bin}
 RUNTIME_ENV="$DATA_DIR/runtime.env"
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'kota 必须以 root 身份运行。' >&2; exit 1; }
 [ -r "$RUNTIME_ENV" ] || { printf '%s\n' '未发现 KotaUI 运行配置。' >&2; exit 1; }
 set -a; . "$RUNTIME_ENV"; set +a
 INTERACTIVE=0
+
 clear_screen(){ command -v clear >/dev/null 2>&1 && clear || printf '\033c'; }
 pause(){ [ "$INTERACTIVE" = 1 ] || return 0; printf '\n按 Enter 返回菜单…'; IFS= read -r _ || true; }
 manager(){ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf systemd; else printf openrc; fi; }
 svc(){ if [ "$(manager)" = systemd ]; then systemctl "$2" "$1"; else rc-service "$1" "$2"; fi; }
 running(){ if [ "$(manager)" = systemd ]; then systemctl is-active --quiet "$1"; else rc-service "$1" status >/dev/null 2>&1; fi; }
-status(){ clear_screen; printf 'KotaUI 状态\n'; printf '面板地址：https://%s:%s%s\n' "$KOTAUI_DOMAIN" "$KOTAUI_PANEL_PORT" "$KOTAUI_PANEL_PATH"; printf '面板服务：'; if running kotaui; then printf '运行中\n'; else printf '异常\n'; fi; printf '核心服务：'; if running kotaui-singbox; then printf '运行中\n'; else printf '异常\n'; fi; printf '证书：'; if openssl x509 -checkend 0 -noout -in "$KOTAUI_TLS_CERT" >/dev/null 2>&1; then printf '有效\n'; else printf '无效或缺失\n'; fi; pause; }
-health(){ result=0; curl -kfsS --max-time 3 "https://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || result=1; "$KOTAUI_SINGBOX_BIN" check -c "$KOTAUI_SINGBOX_CONFIG" >/dev/null 2>&1 || result=1; if [ "$result" -eq 0 ]; then printf '健康检查通过。\n'; else printf '健康检查失败，请查看服务日志。\n' >&2; fi; pause; return "$result"; }
-logs(){ clear_screen; printf '1) KotaUI 面板\n2) sing-box 核心\n'; IFS= read -r pick || true; unit=kotaui; [ "$pick" = 2 ] && unit=kotaui-singbox; if [ "$(manager)" = systemd ]; then journalctl -u "$unit" -n 100 --no-pager; else tail -n 100 "/var/log/$unit.log" 2>/dev/null || true; fi; pause; }
-backup(){ target="/root/kotaui-backup-$(date +%Y%m%d-%H%M%S).tar.gz"; tar -czf "$target" -C "$DATA_DIR" state.json runtime.env sing-box 2>/dev/null || tar -czf "$target" -C "$DATA_DIR" .; printf '备份已保存：%s\n' "$target"; pause; }
-renew(){ /usr/local/bin/kota-cert-renew && printf '续签检查完成。\n'; pause; }
-update(){ printf '更新会重新拉取 KotaUI 并重新构建 Go 二进制。继续请输入 UPDATE： '; IFS= read -r answer || true; [ "$answer" = UPDATE ] || return 0; curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUI/main/install.sh -o /tmp/kotaui-install.sh; KOTAUI_SOURCE_DIR= KOTAUI_NONINTERACTIVE=1 sh /tmp/kotaui-install.sh; }
-uninstall(){ printf '卸载将停止服务并删除 KotaUI 数据。请输入 DELETE： '; IFS= read -r answer || true; [ "$answer" = DELETE ] || return 0; svc kotaui stop || true; svc kotaui-singbox stop || true; [ "$(manager)" = systemd ] && { systemctl disable kotaui kotaui-singbox kota-cert-renew.timer >/dev/null 2>&1 || true; rm -f /etc/systemd/system/kotaui*.service /etc/systemd/system/kota-cert-renew.timer; systemctl daemon-reload; }; rm -rf /opt/kotaui /var/lib/kotaui; rm -f /usr/local/bin/kota /usr/local/bin/kota-cert-renew; printf 'KotaUI 已卸载；Let\x27s Encrypt 证书未删除。\n'; }
-menu(){ INTERACTIVE=1; while :; do clear_screen; cat <<'EOF'
-╔════════════════════ KotaUI 本机管理 ════════════════════╗
-║  1) 状态概览       2) 启动 / 停止 / 重启服务             ║
-║  3) 查看日志       4) 健康检查                           ║
-║  5) 证书续签       6) 备份                               ║
-║  7) 更新 KotaUI    8) 卸载                               ║
-║  0) 退出                                                   ║
-╚══════════════════════════════════════════════════════════╝
+
+status(){
+  clear_screen
+  printf '%s\n' '================ KotaUI 状态 ================'
+  printf '面板地址： https://%s:%s%s\n' "$KOTAUI_DOMAIN" "$KOTAUI_PANEL_PORT" "$KOTAUI_PANEL_PATH"
+  printf '面板服务： '; running kotaui && printf '运行中\n' || printf '未运行\n'
+  printf '核心服务： '; running kotaui-singbox && printf '运行中\n' || printf '未运行\n'
+  printf '证书状态： '; openssl x509 -checkend 0 -noout -in "$KOTAUI_TLS_CERT" >/dev/null 2>&1 && printf '有效\n' || printf '无效或缺失\n'
+  pause
+}
+
+service_menu(){
+  clear_screen
+  printf '%s\n' '1) 启动全部服务'
+  printf '%s\n' '2) 停止全部服务'
+  printf '%s\n' '3) 重启全部服务'
+  printf '%s' '请选择： '; IFS= read -r choice || true
+  case "$choice" in
+    1) svc kotaui start; svc kotaui-singbox start;;
+    2) svc kotaui-singbox stop || true; svc kotaui stop || true;;
+    3) svc kotaui restart; svc kotaui-singbox restart;;
+    *) return 0;;
+  esac
+  printf '服务操作已执行。\n'; pause
+}
+
+health(){
+  result=0
+  curl -kfsS --max-time 3 "https://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || result=1
+  "$KOTAUI_SINGBOX_BIN" check -c "$KOTAUI_SINGBOX_CONFIG" >/dev/null 2>&1 || result=1
+  [ "$result" -eq 0 ] && printf '健康检查通过。\n' || printf '健康检查失败，请查看服务日志。\n' >&2
+  pause
+  return "$result"
+}
+
+logs(){
+  clear_screen
+  printf '%s\n' '1) KotaUI 面板日志'
+  printf '%s\n' '2) sing-box 核心日志'
+  printf '%s' '请选择： '; IFS= read -r pick || true
+  unit=kotaui; [ "$pick" = 2 ] && unit=kotaui-singbox
+  if [ "$(manager)" = systemd ]; then journalctl -u "$unit" -n 100 --no-pager; else tail -n 100 "/var/log/$unit.log" 2>/dev/null || true; fi
+  pause
+}
+
+backup(){
+  target="/root/kotaui-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+  tar -czf "$target" -C "$DATA_DIR" state.json runtime.env sing-box 2>/dev/null || tar -czf "$target" -C "$DATA_DIR" .
+  printf '备份已保存：%s\n' "$target"; pause
+}
+
+renew(){ "$BIN_DIR/kota-cert-renew" && printf '续签检查完成。\n'; pause; }
+
+update(){
+  printf '将下载、编译并替换 KotaUI 程序，现有配置与证书不会变动。继续请输入 y [y/N]： '
+  IFS= read -r answer || true
+  case "$answer" in y|Y) ;; *) return 0;; esac
+  source=$(mktemp -d)
+  if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; printf '下载更新失败。\n' >&2; return 1; fi
+  if ! (cd "$source" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui); then rm -rf "$source"; printf '编译更新失败。\n' >&2; return 1; fi
+  install -m 755 "$source/service/kota" "$BIN_DIR/kota"
+  install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+  if [ "$(manager)" = systemd ]; then
+    install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service
+    install -m 644 "$source/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
+    install -m 644 "$source/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service
+    install -m 644 "$source/service/kota-cert-renew.timer" /etc/systemd/system/kota-cert-renew.timer
+    systemctl daemon-reload
+    systemctl restart kotaui kotaui-singbox
+    systemctl enable --now kota-cert-renew.timer >/dev/null 2>&1 || true
+  else
+    install -m 755 "$source/service/kotaui.openrc" /etc/init.d/kotaui
+    install -m 755 "$source/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
+    install -m 755 "$source/service/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew
+    rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
+  fi
+  rm -rf "$source"
+  printf 'KotaUI 已更新，配置、用户数据和证书保持不变。\n'
+  pause
+}
+
+remove_kotaui_certificate(){
+  [ -n "${KOTAUI_DOMAIN:-}" ] || return 0
+  certbot_bin=${KOTAUI_CERTBOT_BIN:-certbot}
+  if [ -x "$certbot_bin" ] || command -v "$certbot_bin" >/dev/null 2>&1; then
+    "$certbot_bin" delete --non-interactive --cert-name "$KOTAUI_DOMAIN" >/dev/null 2>&1 || true
+  fi
+  rm -rf "/etc/letsencrypt/live/$KOTAUI_DOMAIN" "/etc/letsencrypt/archive/$KOTAUI_DOMAIN" "/etc/letsencrypt/renewal/$KOTAUI_DOMAIN.conf"
+}
+
+uninstall(){
+  clear_screen
+  cat <<'EOF'
+将停止服务并删除 KotaUI 面板、数据、sing-box 配置、定时任务和 KotaUI 专用证书。
+不会删除系统 Python、Certbot、Go、sing-box 软件包或其他项目文件。
 EOF
-printf '请选择： '; IFS= read -r choice || true; case "$choice" in 1)status;;2)printf '1) 启动 2) 停止 3) 重启： ';IFS= read -r action||true;case "$action" in 1)svc kotaui start;svc kotaui-singbox start;;2)svc kotaui-singbox stop;svc kotaui stop;;3)svc kotaui restart;svc kotaui-singbox restart;;esac;pause;;3)logs;;4)health||true;;5)renew;;6)backup;;7)update;;8)uninstall;exit 0;;0)exit 0;;*)printf '无效选择。\n';sleep 1;;esac; done }
-case "${1:-}" in status)status;;check)health;;restart)svc kotaui restart;svc kotaui-singbox restart;;*)menu;;esac
+  printf '是否卸载 KotaUI？[y/N]: '
+  IFS= read -r answer || true
+  case "$answer" in y|Y) ;; *) printf '已取消卸载。\n'; return 0;; esac
+  svc kotaui-singbox stop >/dev/null 2>&1 || true
+  svc kotaui stop >/dev/null 2>&1 || true
+  if [ "$(manager)" = systemd ]; then
+    systemctl disable kotaui kotaui-singbox kota-cert-renew.timer >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/kotaui.service /etc/systemd/system/kotaui-singbox.service /etc/systemd/system/kota-cert-renew.service /etc/systemd/system/kota-cert-renew.timer
+    systemctl daemon-reload
+  else
+    rc-update del kotaui default >/dev/null 2>&1 || true
+    rc-update del kotaui-singbox default >/dev/null 2>&1 || true
+    rm -f /etc/init.d/kotaui /etc/init.d/kotaui-singbox /etc/conf.d/kotaui /etc/periodic/6hourly/kota-cert-renew
+  fi
+  remove_kotaui_certificate
+  rm -rf "$PREFIX" "$DATA_DIR"
+  rm -f "$BIN_DIR/kota" "$BIN_DIR/kota-cert-renew"
+  printf 'KotaUI 已卸载完成。\n'
+}
+
+menu(){
+  INTERACTIVE=1
+  while :; do
+    clear_screen
+    cat <<'EOF'
+============================================================
+                    KotaUI 本机管理
+============================================================
+  1) 状态概览          2) 服务控制
+  3) 查看日志          4) 健康检查
+  5) 证书续签          6) 备份
+  7) 更新 KotaUI       8) 卸载
+  0) 退出
+------------------------------------------------------------
+EOF
+    printf '请选择： '; IFS= read -r choice || true
+    case "$choice" in
+      1) status;; 2) service_menu;; 3) logs;; 4) health || true;;
+      5) renew;; 6) backup;; 7) update;; 8) uninstall; exit 0;;
+      0) exit 0;; *) printf '无效选择。\n'; sleep 1;;
+    esac
+  done
+}
+
+case "${1:-}" in
+  status) status;;
+  check) health;;
+  restart) svc kotaui restart; svc kotaui-singbox restart;;
+  uninstall) uninstall;;
+  *) menu;;
+esac

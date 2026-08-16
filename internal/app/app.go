@@ -32,10 +32,11 @@ var files embed.FS
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
 
 type App struct {
-	runtime config.Runtime
-	store   *store.Store
-	key     []byte
-	mu      sync.Mutex
+	runtime  config.Runtime
+	store    *store.Store
+	key      []byte
+	mu       sync.Mutex
+	sniProbe sniProbeFunc
 }
 
 func New(runtime config.Runtime) (*App, error) {
@@ -63,7 +64,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:]}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], sniProbe: probeSNI}, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -73,13 +74,16 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/login", a.login)
 	mux.HandleFunc("/api/logout", a.logout)
 	mux.HandleFunc("/api/state", a.auth(a.state))
-	mux.HandleFunc("/api/overview", a.auth(a.overview))
+	mux.HandleFunc("/api/overview", a.auth(a.dashboard))
+	mux.HandleFunc("/api/dashboard", a.auth(a.dashboard))
 	mux.HandleFunc("/api/inbounds", a.auth(a.inbounds))
 	mux.HandleFunc("/api/inbounds/", a.auth(a.inboundAction))
 	mux.HandleFunc("/api/clients", a.auth(a.clients))
 	mux.HandleFunc("/api/clients/", a.auth(a.clientAction))
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
 	mux.HandleFunc("/api/config/validate", a.auth(a.validateConfig))
+	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
+	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -181,15 +185,31 @@ func (a *App) state(w http.ResponseWriter, _ *http.Request) {
 	a.resetMonth()
 	writeJSON(w, http.StatusOK, a.store.Snapshot())
 }
-func (a *App) overview(w http.ResponseWriter, _ *http.Request) {
+func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	s := a.store.Snapshot()
-	active := 0
-	for _, c := range s.Clients {
-		if c.Active(time.Now()) {
+	active, totalUsed, monthlyUsed := 0, int64(0), int64(0)
+	for _, client := range s.Clients {
+		if client.Active(time.Now()) {
 			active++
 		}
+		totalUsed += client.UsedBytes
+		monthlyUsed += client.MonthlyUsedBytes
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"metrics": system.Collect(a.runtime.DataDir), "activeClients": active, "inboundCount": len(s.Inbounds), "panelURL": a.panelURL(), "version": config.Version, "certificatePresent": filePresent(a.runtime.TLSCert)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"metrics":       system.Collect(a.runtime.DataDir),
+		"activeClients": active,
+		"inboundCount":  len(s.Inbounds),
+		"clientCount":   len(s.Clients),
+		"totalUsed":     totalUsed,
+		"monthlyUsed":   monthlyUsed,
+		"panelURL":      a.panelURL(),
+		"version":       config.Version,
+		"certificate":   certificateStatus(a.runtime.TLSCert),
+		"services": []map[string]any{
+			{"id": "panel", "name": "KotaUI 面板", "running": serviceRunning("kotaui")},
+			{"id": "singbox", "name": "sing-box 核心", "running": serviceRunning("kotaui-singbox")},
+		},
+	})
 }
 
 func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
@@ -200,6 +220,10 @@ func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
 		var inbound config.Inbound
 		if err := decodeJSON(r, &inbound); err != nil {
 			badRequest(w, err)
+			return
+		}
+		if err := a.prepareRealityInbound(&inbound); err != nil {
+			serverError(w, err)
 			return
 		}
 		if err := validateInbound(&inbound); err != nil {
@@ -218,22 +242,88 @@ func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (a *App) inboundAction(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		methodNotAllowed(w)
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/inbounds/"), "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		badRequest(w, errors.New("入站 ID 不能为空"))
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/api/inbounds/")
-	err := a.mutate(func(s *config.State) error {
-		for i, v := range s.Inbounds {
-			if v.ID == id {
-				s.Inbounds = append(s.Inbounds[:i], s.Inbounds[i+1:]...)
-				return nil
+	id := parts[0]
+	switch r.Method {
+	case http.MethodDelete:
+		err := a.mutate(func(s *config.State) error {
+			for i, value := range s.Inbounds {
+				if value.ID == id {
+					s.Inbounds = append(s.Inbounds[:i], s.Inbounds[i+1:]...)
+					return nil
+				}
+			}
+			return errors.New("入站不存在")
+		})
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
+	case http.MethodPatch:
+		var incoming config.Inbound
+		if err := decodeJSON(r, &incoming); err != nil {
+			badRequest(w, err)
+			return
+		}
+		for _, current := range a.store.Snapshot().Inbounds {
+			if current.ID == id && incoming.Type == "reality" {
+				if incoming.PrivateKey == "" {
+					incoming.PrivateKey = current.PrivateKey
+				}
+				if incoming.PublicKey == "" {
+					incoming.PublicKey = current.PublicKey
+				}
+				if incoming.ShortID == "" {
+					incoming.ShortID = current.ShortID
+				}
+				break
 			}
 		}
-		return errors.New("入站不存在")
-	})
-	if err != nil {
-		badRequest(w, err)
+		if err := a.prepareRealityInbound(&incoming); err != nil {
+			serverError(w, err)
+			return
+		}
+		if err := validateInbound(&incoming); err != nil {
+			badRequest(w, err)
+			return
+		}
+		if err := a.mutate(func(s *config.State) error {
+			for i := range s.Inbounds {
+				if s.Inbounds[i].ID == id {
+					incoming.ID = id
+					incoming.Enabled = s.Inbounds[i].Enabled
+					s.Inbounds[i] = incoming
+					return nil
+				}
+			}
+			return errors.New("入站不存在")
+		}); err != nil {
+			badRequest(w, err)
+			return
+		}
+	case http.MethodPost:
+		if len(parts) != 2 || parts[1] != "toggle" {
+			methodNotAllowed(w)
+			return
+		}
+		if err := a.mutate(func(s *config.State) error {
+			for i := range s.Inbounds {
+				if s.Inbounds[i].ID == id {
+					s.Inbounds[i].Enabled = !s.Inbounds[i].Enabled
+					return nil
+				}
+			}
+			return errors.New("入站不存在")
+		}); err != nil {
+			badRequest(w, err)
+			return
+		}
+	default:
+		methodNotAllowed(w)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -428,6 +518,47 @@ func (a *App) panelURL() string {
 		scheme = "https"
 	}
 	return fmt.Sprintf("%s://%s%s", scheme, a.runtime.Domain, a.runtime.PanelPath)
+}
+
+func (a *App) prepareRealityInbound(v *config.Inbound) error {
+	if v.Type != "reality" {
+		return nil
+	}
+	if v.HandshakePort == 0 {
+		v.HandshakePort = 443
+	}
+	if v.SNI == "" {
+		v.SNI = v.HandshakeServer
+	}
+	if v.ShortID == "" {
+		v.ShortID = config.RandomHex(8)
+	}
+	if v.PrivateKey != "" && v.PublicKey != "" {
+		return nil
+	}
+	if !filePresent(a.runtime.SingBoxBin) {
+		return errors.New("未找到 sing-box，无法自动生成 REALITY 密钥")
+	}
+	output, err := exec.Command(a.runtime.SingBoxBin, "generate", "reality-keypair").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("生成 REALITY 密钥失败：%s", strings.TrimSpace(string(output)))
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		key, value, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		switch strings.TrimSpace(strings.ToLower(key)) {
+		case "privatekey", "private key":
+			v.PrivateKey = strings.TrimSpace(value)
+		case "publickey", "public key":
+			v.PublicKey = strings.TrimSpace(value)
+		}
+	}
+	if v.PrivateKey == "" || v.PublicKey == "" {
+		return errors.New("sing-box 未返回有效的 REALITY 密钥")
+	}
+	return nil
 }
 
 func validateInbound(v *config.Inbound) error {

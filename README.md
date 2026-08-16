@@ -1,14 +1,20 @@
 # KotaUI
 
-轻量级 **Go + sing-box** 管理面板，面向单核、512 MB–1 GB 内存的 VPS。
+面向 Alpine、Debian、Ubuntu VPS 的轻量级 **Go + sing-box** 管理面板，适合单核、512 MB–1 GB 内存环境。
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUI/main/install.sh)
 ```
 
-首次 SSH 安装按以下顺序完成：选择域名或 IP 证书、设置面板端口（默认 `1989`）、设置路径（默认 `ptf`）、设置管理员账号和密码。安装结束会显示完整管理地址与初始凭据，请立即保存。
+首次 SSH 安装依次选择域名/IP 证书、面板端口（默认 `1989`）、面板路径（默认 `ptf`）以及管理员账号密码。安装结束会显示完整管理地址，请立即保存。
 
-面板支持 **VLESS + REALITY、Hysteria 2、Shadowsocks 2022**，并提供订阅、用户流量/到期控制与证书自动续签。
+| 能力 | 说明 |
+|---|---|
+| 实时仪表盘 | CPU、内存、Swap、存储、负载、运行时间、面板/sing-box/证书状态。 |
+| 入站 | VLESS + REALITY、Hysteria 2、Shadowsocks 2022；支持创建、编辑、启停和删除。 |
+| REALITY | 从候选或自定义伪装域名中选择；自动测试 VPS TLS 延迟，自动生成密钥与 Short ID。 |
+| 客户端 | 多入站绑定、总流量、自然月流量、有效期、在线 IP 限制、订阅链接。 |
+| 维护 | 自动证书续签、备份、健康检查、更新与一次 `y/N` 确认的干净卸载。 |
 
 安装后输入以下命令打开本机管理菜单：
 

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const Version = "0.2.0"
+const Version = "1.0.0"
 
 type Runtime struct {
 	DataDir          string
@@ -86,7 +86,14 @@ type Client struct {
 }
 
 func DefaultState(domain string) State {
-	return State{Settings: Settings{PanelName: "KotaUI", TitleEnabled: true, Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: []RealityCandidate{{Host: "www.cloudflare.com", Port: 443}, {Host: "www.apple.com", Port: 443}, {Host: "www.microsoft.com", Port: 443}}}, Inbounds: []Inbound{}, Clients: []Client{}, Created: time.Now().UTC()}
+	candidates := []RealityCandidate{
+		{Host: "www.cloudflare.com", Port: 443}, {Host: "www.microsoft.com", Port: 443},
+		{Host: "www.apple.com", Port: 443}, {Host: "www.amazon.com", Port: 443},
+		{Host: "www.bing.com", Port: 443}, {Host: "www.nvidia.com", Port: 443},
+		{Host: "www.adobe.com", Port: 443}, {Host: "www.ibm.com", Port: 443},
+		{Host: "www.oracle.com", Port: 443}, {Host: "www.mozilla.org", Port: 443},
+	}
+	return State{Settings: Settings{PanelName: "KotaUI", TitleEnabled: true, Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates}, Inbounds: []Inbound{}, Clients: []Client{}, Created: time.Now().UTC()}
 }
 
 func NewID() string            { return randomHex(16) }
