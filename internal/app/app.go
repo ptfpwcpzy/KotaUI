@@ -824,7 +824,7 @@ func validateInbound(v *config.Inbound) error {
 	return nil
 }
 func validSS2022Key(value string) bool {
-	decoded, err := base64.RawStdEncoding.DecodeString(value)
+	decoded, err := base64.StdEncoding.DecodeString(value)
 	return err == nil && len(decoded) == 32
 }
 

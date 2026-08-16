@@ -105,7 +105,7 @@ func RandomBase64(bytes int) string {
 	if _, err := rand.Read(buf); err != nil {
 		panic(fmt.Sprintf("random source: %v", err))
 	}
-	return base64.RawStdEncoding.EncodeToString(buf)
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 func randomHex(bytes int) string {

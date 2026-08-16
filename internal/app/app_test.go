@@ -363,3 +363,34 @@ func TestHysteriaBandwidthIsFixed(t *testing.T) {
 		t.Fatalf("hysteria2 bandwidth %d/%d", created.UpMbps, created.DownMbps)
 	}
 }
+
+func TestShadowsocks2022UsesPaddedStandardBase64(t *testing.T) {
+	key := make([]byte, 32)
+	legacyRaw := base64.RawStdEncoding.EncodeToString(key)
+	if validSS2022Key(legacyRaw) {
+		t.Fatalf("legacy raw Base64 key must be regenerated: %q", legacyRaw)
+	}
+	standard := config.RandomBase64(32)
+	if !strings.HasSuffix(standard, "=") || !validSS2022Key(standard) {
+		t.Fatalf("invalid standard Base64 key: %q", standard)
+	}
+}
+
+func TestNormalizeProtocolSecretsRepairsLegacyShadowsocksKey(t *testing.T) {
+	a := testApp(t)
+	legacy := base64.RawStdEncoding.EncodeToString(make([]byte, 32))
+	if err := a.store.Update(func(state *config.State) error {
+		state.Inbounds = append(state.Inbounds, config.Inbound{ID: "legacy-ss", Name: "legacy ss", Type: "shadowsocks2022", ServerPassword: legacy})
+		state.Clients = append(state.Clients, config.Client{ID: "client", Credentials: map[string]string{"legacy-ss": legacy}})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeProtocolSecrets(a.store, a.runtime.SingBoxBin); err != nil {
+		t.Fatal(err)
+	}
+	state := a.store.Snapshot()
+	if !validSS2022Key(state.Inbounds[0].ServerPassword) || !validSS2022Key(state.Clients[0].Credentials["legacy-ss"]) {
+		t.Fatalf("legacy SS2022 keys were not repaired: %#v", state)
+	}
+}
