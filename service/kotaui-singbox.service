@@ -6,8 +6,7 @@ Requires=kotaui.service
 [Service]
 Type=simple
 EnvironmentFile=/var/lib/kotaui/runtime.env
-ExecStartPre=/usr/bin/test -s ${KOTAUI_SINGBOX_CONFIG}
-ExecStart=${KOTAUI_SINGBOX_BIN} run -c ${KOTAUI_SINGBOX_CONFIG}
+ExecStart=/usr/local/lib/kotaui/kotaui-singbox-run
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true

@@ -33,11 +33,13 @@ var files embed.FS
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
 
 type App struct {
-	runtime  config.Runtime
-	store    *store.Store
-	key      []byte
-	mu       sync.Mutex
-	sniProbe sniProbeFunc
+	runtime       config.Runtime
+	store         *store.Store
+	key           []byte
+	mu            sync.Mutex
+	updateMu      sync.Mutex
+	updateRunning bool
+	sniProbe      sniProbeFunc
 }
 
 func New(runtime config.Runtime) (*App, error) {
@@ -89,6 +91,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
 	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
 	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
+	mux.HandleFunc("/api/update", a.auth(a.updatePanel))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -261,3 +261,11 @@ func TestIPv6ShareSwitchRequiresPublicAddress(t *testing.T) {
 		t.Fatalf("unexpected IPv6 status: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestPanelUpdateRequiresAuthentication(t *testing.T) {
+	a := testApp(t)
+	w := request(t, a.Handler(), http.MethodPost, "/api/update", map[string]string{}, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("update auth status %d", w.Code)
+	}
+}
