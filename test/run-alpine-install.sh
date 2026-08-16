@@ -5,7 +5,10 @@ ROOTFS=/tmp/kotaui-go-alpine
 SOURCE=/home/ubuntu/KotaUI
 CERT_TYPE=${SIM_CERT_TYPE:-domain}
 CERT_SUBJECT=${SIM_CERT_SUBJECT:-panel.example.test}
-export CERT_TYPE CERT_SUBJECT
+PROMPT_CERT=${SIM_PROMPT_CERT:-}
+EXPECTED_CERT_TYPE=$CERT_TYPE
+case "$PROMPT_CERT" in ip) EXPECTED_CERT_TYPE=ip;; domain) EXPECTED_CERT_TYPE=domain;; esac
+export CERT_TYPE CERT_SUBJECT PROMPT_CERT EXPECTED_CERT_TYPE
 
 rm -rf "$ROOTFS/opt/kotaui-source" "$ROOTFS/opt/kotaui" "$ROOTFS/var/lib/kotaui" "$ROOTFS/run/kotaui-sim"
 mkdir -p "$ROOTFS/opt/kotaui-source" "$ROOTFS/usr/local/bin"
@@ -34,13 +37,17 @@ unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
     export KOTAUI_PANEL_PATH=ptf
     export KOTAUI_ADMIN_USER=admin
     export KOTAUI_ADMIN_PASSWORD=alpine-go-test-password
-    sh /opt/kotaui-source/install.sh
+    case \"$PROMPT_CERT\" in
+      ip) printf \"2\\n203.0.113.10\\ntest@example.test\\n\" | env -u KOTAUI_CERT_TYPE -u KOTAUI_CERT_SUBJECT sh /opt/kotaui-source/install.sh ;;
+      domain) printf \"1\\npanel.example.test\\ntest@example.test\\n\" | env -u KOTAUI_CERT_TYPE -u KOTAUI_CERT_SUBJECT sh /opt/kotaui-source/install.sh ;;
+      *) sh /opt/kotaui-source/install.sh ;;
+    esac
     test -x /opt/kotaui/kotaui
     test -x /usr/local/bin/kota
     test -f /var/lib/kotaui/runtime.env
     grep -q KOTAUI_PANEL_PORT=1989 /var/lib/kotaui/runtime.env
     grep -q KOTAUI_PANEL_PATH=/ptf /var/lib/kotaui/runtime.env
-    grep -q KOTAUI_CERT_TYPE=$CERT_TYPE /var/lib/kotaui/runtime.env
+    grep -q KOTAUI_CERT_TYPE=$EXPECTED_CERT_TYPE /var/lib/kotaui/runtime.env
     /usr/local/bin/kota check
     echo ALPINE_GO_INSTALL_SIMULATION_PASS
   "
