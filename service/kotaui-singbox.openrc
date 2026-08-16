@@ -1,20 +1,14 @@
 #!/sbin/openrc-run
-
-description="KotaUI sing-box core"
-command="/opt/kotaui/bin/kotaui-singbox-run"
-command_args=""
-command_user="root:root"
-directory="/opt/kotaui"
-supervisor="supervise-daemon"
+name="KotaUI sing-box"
+command="${KOTAUI_SINGBOX_BIN:-/usr/local/bin/sing-box}"
+command_args="run -c ${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}"
+command_background="yes"
+pidfile="/run/kotaui-singbox.pid"
+command_user="root"
 output_log="/var/log/kotaui-singbox.log"
-error_log="/var/log/kotaui-singbox.err"
-respawn_delay=3
-
-start_pre() {
-  /opt/kotaui/bin/kotaui-singbox-check || return 1
-}
+error_log="/var/log/kotaui-singbox.log"
 
 depend() {
   need net
-  after firewall
+  after kotaui
 }

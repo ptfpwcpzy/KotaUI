@@ -1,25 +1,22 @@
 [Unit]
-Description=KotaUI self-hosted management panel
-After=network-online.target kotaui-singbox.service
+Description=KotaUI Go management panel
+After=network-online.target
 Wants=network-online.target
-Requires=kotaui-singbox.service
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/kotaui
-ExecStart=/opt/kotaui/bin/kotaui-run
+EnvironmentFile=/var/lib/kotaui/runtime.env
+ExecStart=/opt/kotaui/kotaui
 Restart=on-failure
 RestartSec=3
-StartLimitIntervalSec=60
-StartLimitBurst=5
-MemoryMax=160M
-TasksMax=128
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/var/lib/kotaui /opt/kotaui
+ProtectSystem=full
+ReadWritePaths=/var/lib/kotaui
+MemoryMax=120M
+TasksMax=64
+LimitNOFILE=16384
 
 [Install]
 WantedBy=multi-user.target

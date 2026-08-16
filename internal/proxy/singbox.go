@@ -1,0 +1,123 @@
+package proxy
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/ptfpwcpzy/KotaUI/internal/config"
+)
+
+func Write(state config.State, runtime config.Runtime) error {
+	if err := os.MkdirAll(filepath.Dir(runtime.SingBoxConfig), 0700); err != nil {
+		return err
+	}
+	inbounds := make([]map[string]any, 0, len(state.Inbounds))
+	active := activeClients(state.Clients)
+	for _, inbound := range state.Inbounds {
+		if !inbound.Enabled {
+			continue
+		}
+		switch inbound.Type {
+		case "reality":
+			users := []map[string]any{}
+			for _, client := range active {
+				if secret := client.Credentials[inbound.ID]; secret != "" {
+					users = append(users, map[string]any{"name": client.Username, "uuid": secret, "flow": "xtls-rprx-vision"})
+				}
+			}
+			inbounds = append(inbounds, map[string]any{"type": "vless", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "users": users, "tls": map[string]any{"enabled": true, "server_name": inbound.SNI, "reality": map[string]any{"enabled": true, "handshake": map[string]any{"server": inbound.HandshakeServer, "server_port": inbound.HandshakePort}, "private_key": inbound.PrivateKey, "short_id": []string{inbound.ShortID}}}})
+		case "hysteria2":
+			users := []map[string]any{}
+			for _, client := range active {
+				if secret := client.Credentials[inbound.ID]; secret != "" {
+					users = append(users, map[string]any{"name": client.Username, "password": secret})
+				}
+			}
+			tls := map[string]any{"enabled": true, "certificate_path": runtime.TLSCert, "key_path": runtime.TLSKey, "server_name": inbound.SNI}
+			entry := map[string]any{"type": "hysteria2", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "users": users, "tls": tls, "up_mbps": inbound.UpMbps, "down_mbps": inbound.DownMbps}
+			if inbound.ObfsPassword != "" {
+				entry["obfs"] = map[string]any{"type": "salamander", "password": inbound.ObfsPassword}
+			}
+			inbounds = append(inbounds, entry)
+		case "shadowsocks2022":
+			users := []map[string]any{}
+			for _, client := range active {
+				if secret := client.Credentials[inbound.ID]; secret != "" {
+					users = append(users, map[string]any{"name": client.Username, "password": secret})
+				}
+			}
+			inbounds = append(inbounds, map[string]any{"type": "shadowsocks", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "method": "2022-blake3-aes-256-gcm", "password": inbound.ServerPassword, "users": users})
+		}
+	}
+	root := map[string]any{"log": map[string]any{"level": "warn", "timestamp": true}, "inbounds": inbounds, "outbounds": []map[string]any{{"type": "direct", "tag": "direct"}}}
+	body, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := runtime.SingBoxConfig + ".tmp"
+	if err := os.WriteFile(tmp, body, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, runtime.SingBoxConfig)
+}
+
+func activeClients(clients []config.Client) []config.Client {
+	now := time.Now()
+	currentMonth := now.Format("2006-01")
+	out := []config.Client{}
+	for _, client := range clients {
+		if client.Month != currentMonth {
+			client.MonthlyUsedBytes = 0
+		}
+		if client.Active(now) {
+			out = append(out, client)
+		}
+	}
+	return out
+}
+
+func Subscription(state config.State, runtime config.Runtime, username string) (string, bool) {
+	var client *config.Client
+	for i := range state.Clients {
+		if state.Clients[i].Username == username {
+			client = &state.Clients[i]
+			break
+		}
+	}
+	if client == nil || !client.Active(time.Now()) {
+		return "", false
+	}
+	links := []string{}
+	for _, id := range client.InboundIDs {
+		for _, inbound := range state.Inbounds {
+			if inbound.ID != id || !inbound.Enabled {
+				continue
+			}
+			secret := client.Credentials[id]
+			if secret == "" {
+				continue
+			}
+			label := urlLabel(inbound.Name, client.Username)
+			switch inbound.Type {
+			case "reality":
+				links = append(links, fmt.Sprintf("vless://%s@%s:%d?encryption=none&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s&type=tcp#%s", secret, runtime.Domain, inbound.Port, inbound.SNI, inbound.PublicKey, inbound.ShortID, label))
+			case "hysteria2":
+				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d?sni=%s#%s", secret, runtime.Domain, inbound.Port, inbound.SNI, label))
+			case "shadowsocks2022":
+				encoded := base64.RawStdEncoding.EncodeToString([]byte("2022-blake3-aes-256-gcm:" + secret))
+				links = append(links, fmt.Sprintf("ss://%s@%s:%d#%s", encoded, runtime.Domain, inbound.Port, url.QueryEscape(label)))
+			}
+		}
+	}
+	return strings.Join(links, "\n"), true
+}
+
+func urlLabel(parts ...string) string {
+	return strings.NewReplacer(" ", "-", "#", "", "?", "").Replace(strings.Join(parts, "-"))
+}

@@ -1,15 +1,17 @@
 #!/sbin/openrc-run
-
-description="KotaUI self-hosted management panel"
-command="/opt/kotaui/bin/kotaui-run"
-directory="/opt/kotaui"
-command_user="root:root"
-supervisor="supervise-daemon"
+name="KotaUI"
+command="/opt/kotaui/kotaui"
+command_background="yes"
+pidfile="/run/kotaui.pid"
+command_user="root"
 output_log="/var/log/kotaui.log"
-error_log="/var/log/kotaui.err"
-respawn_delay=3
+error_log="/var/log/kotaui.log"
 
- depend() {
-  need net kotaui-singbox
+depend() {
+  need net
   after firewall
- }
+}
+
+start_pre() {
+  export KOTAUI_DATA_DIR="${KOTAUI_RUNTIME_ENV:-/var/lib/kotaui}"
+}

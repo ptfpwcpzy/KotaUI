@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+if ! certbot renew --quiet; then
+  exit 1
+fi
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl try-restart kotaui kotaui-singbox
+elif command -v rc-service >/dev/null 2>&1; then
+  rc-service kotaui restart || true
+fi

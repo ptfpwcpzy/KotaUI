@@ -1,25 +1,23 @@
 [Unit]
-Description=KotaUI sing-box core
-After=network-online.target
-Wants=network-online.target
+Description=KotaUI managed sing-box core
+After=kotaui.service
+Requires=kotaui.service
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/kotaui
-ExecStartPre=/opt/kotaui/bin/kotaui-singbox-check
-ExecStart=/opt/kotaui/bin/kotaui-singbox-run
+EnvironmentFile=/var/lib/kotaui/runtime.env
+ExecStartPre=/usr/bin/test -s ${KOTAUI_SINGBOX_CONFIG}
+ExecStart=${KOTAUI_SINGBOX_BIN} run -c ${KOTAUI_SINGBOX_CONFIG}
 Restart=on-failure
-RestartSec=3
-StartLimitIntervalSec=60
-StartLimitBurst=5
-MemoryMax=256M
-TasksMax=128
+RestartSec=2
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/var/lib/kotaui /opt/kotaui
+ProtectSystem=full
+ReadWritePaths=/var/lib/kotaui
+MemoryMax=180M
+TasksMax=128
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target

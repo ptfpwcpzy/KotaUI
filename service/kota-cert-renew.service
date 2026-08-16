@@ -1,6 +1,6 @@
 [Unit]
-Description=KotaUI ACME certificate renewal
+Description=Renew KotaUI TLS certificate
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh /usr/local/bin/kota-cert-renew
+ExecStart=/usr/local/bin/kota-cert-renew

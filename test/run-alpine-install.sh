@@ -1,45 +1,47 @@
 #!/bin/sh
 set -eu
-ROOTFS=/tmp/kotaui-alpine-rootfs
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-SIM_CERT_TYPE=${SIM_CERT_TYPE:-domain}
-SIM_CERT_SUBJECT=${SIM_CERT_SUBJECT:-panel.example.test}
-export SIM_CERT_TYPE SIM_CERT_SUBJECT
-install -m 755 "$SCRIPT_DIR/fake-rc-service.sh" "$ROOTFS/usr/local/bin/rc-service"
+
+ROOTFS=/tmp/kotaui-go-alpine
+SOURCE=/home/ubuntu/KotaUI
+CERT_TYPE=${SIM_CERT_TYPE:-domain}
+CERT_SUBJECT=${SIM_CERT_SUBJECT:-panel.example.test}
+export CERT_TYPE CERT_SUBJECT
+
+rm -rf "$ROOTFS/opt/kotaui-source" "$ROOTFS/opt/kotaui" "$ROOTFS/var/lib/kotaui" "$ROOTFS/run/kotaui-sim"
+mkdir -p "$ROOTFS/opt/kotaui-source" "$ROOTFS/usr/local/bin"
+(cd "$SOURCE" && tar --exclude=.git --exclude=bin -cf - .) | tar -C "$ROOTFS/opt/kotaui-source" -xf -
+install -m 755 "$SOURCE/test/fake-rc-service.sh" "$ROOTFS/usr/local/bin/rc-service"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$ROOTFS/usr/local/bin/rc-update"
+printf '%s\n' '#!/bin/sh' 'set -eu' 'subject=""' 'while [ "$#" -gt 0 ]; do case "$1" in -d|--ip-address) subject="$2"; shift 2;; *) shift;; esac; done' '[ -n "$subject" ] || exit 1' 'mkdir -p "/etc/letsencrypt/live/$subject"' 'openssl req -x509 -newkey rsa:2048 -nodes -keyout "/etc/letsencrypt/live/$subject/privkey.pem" -out "/etc/letsencrypt/live/$subject/fullchain.pem" -subj "/CN=$subject" -days 7 >/dev/null 2>&1' > "$ROOTFS/usr/local/bin/certbot"
+chmod 755 "$ROOTFS/usr/local/bin/rc-update" "$ROOTFS/usr/local/bin/certbot"
 
 unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
   set -eu
-  mount --bind /tmp/kotaui-alpine-rootfs /tmp/kotaui-alpine-rootfs
-  mkdir -p /tmp/kotaui-alpine-rootfs/proc
-  mount -t proc proc /tmp/kotaui-alpine-rootfs/proc
-  chroot /tmp/kotaui-alpine-rootfs /bin/sh -c "
+  mount --bind /tmp/kotaui-go-alpine /tmp/kotaui-go-alpine
+  mount -t proc proc /tmp/kotaui-go-alpine/proc
+  chroot /tmp/kotaui-go-alpine /bin/sh -c "
     set -eu
-    export PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
     export KOTAUI_SOURCE_DIR=/opt/kotaui-source
     export KOTAUI_PREFIX=/opt/kotaui
     export KOTAUI_DATA_DIR=/var/lib/kotaui
     export KOTAUI_BIN_DIR=/usr/local/bin
     export KOTAUI_NONINTERACTIVE=1
-    export KOTAUI_CERT_TYPE=$SIM_CERT_TYPE
-    export KOTAUI_CERT_SUBJECT=$SIM_CERT_SUBJECT
+    export KOTAUI_CERT_TYPE=$CERT_TYPE
+    export KOTAUI_CERT_SUBJECT=$CERT_SUBJECT
     export KOTAUI_CERT_EMAIL=test@example.test
     export KOTAUI_PANEL_PORT=1989
     export KOTAUI_PANEL_PATH=ptf
     export KOTAUI_ADMIN_USER=admin
-    export KOTAUI_ADMIN_PASSWORD=alpine-test-password
-    export KOTAUI_CREATE_BUILD_SWAP=0
-    export KOTAUI_BUILD_JOBS=1
-    export KOTAUI_BUILD_MEMORY=256MiB
-    /opt/kotaui-source/install.sh
+    export KOTAUI_ADMIN_PASSWORD=alpine-go-test-password
+    sh /opt/kotaui-source/install.sh
+    test -x /opt/kotaui/kotaui
     test -x /usr/local/bin/kota
-    test -x /opt/kotaui/bin/kotaui-run
     test -f /var/lib/kotaui/runtime.env
-    test -f /var/lib/kotaui/certificate.env
-    test -L /var/lib/kotaui/certs/fullchain.pem
+    grep -q KOTAUI_PANEL_PORT=1989 /var/lib/kotaui/runtime.env
     grep -q KOTAUI_PANEL_PATH=/ptf /var/lib/kotaui/runtime.env
-    grep -q KOTAUI_MANAGE_SERVICES=1 /var/lib/kotaui/runtime.env
-    /usr/local/bin/kota status </dev/null >/tmp/kota-status.txt 2>&1 || true
-    grep -q KotaUI /tmp/kota-status.txt
-    echo ALPINE_INSTALL_SIMULATION_PASS
+    grep -q KOTAUI_CERT_TYPE=$CERT_TYPE /var/lib/kotaui/runtime.env
+    /usr/local/bin/kota check
+    echo ALPINE_GO_INSTALL_SIMULATION_PASS
   "
 '
