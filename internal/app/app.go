@@ -63,7 +63,7 @@ func New(runtime config.Runtime) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := normalizeProtocolSecrets(s); err != nil {
+	if err := normalizeProtocolSecrets(s, runtime.SingBoxBin); err != nil {
 		return nil, err
 	}
 	if err := proxy.Write(s.Snapshot(), runtime); err != nil {
@@ -730,16 +730,36 @@ func (a *App) prepareRealityInbound(v *config.Inbound) error {
 	if v.ShortID == "" {
 		v.ShortID = config.RandomHex(8)
 	}
-	if v.PrivateKey != "" && v.PublicKey != "" {
+	if validRealityKeyPair(v.PrivateKey, v.PublicKey) {
 		return nil
 	}
-	if !filePresent(a.runtime.SingBoxBin) {
-		return errors.New("未找到 sing-box，无法自动生成 REALITY 密钥")
-	}
-	output, err := exec.Command(a.runtime.SingBoxBin, "generate", "reality-keypair").CombinedOutput()
+	privateKey, publicKey, err := generateRealityKeypair(a.runtime.SingBoxBin)
 	if err != nil {
-		return fmt.Errorf("生成 REALITY 密钥失败：%s", strings.TrimSpace(string(output)))
+		return err
 	}
+	v.PrivateKey = privateKey
+	v.PublicKey = publicKey
+	return nil
+}
+
+func validRealityKey(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+	return err == nil && len(decoded) == 32
+}
+
+func validRealityKeyPair(privateKey, publicKey string) bool {
+	return validRealityKey(privateKey) && validRealityKey(publicKey)
+}
+
+func generateRealityKeypair(binary string) (string, string, error) {
+	if !filePresent(binary) {
+		return "", "", errors.New("未找到 sing-box，无法自动生成 REALITY 密钥")
+	}
+	output, err := exec.Command(binary, "generate", "reality-keypair").CombinedOutput()
+	if err != nil {
+		return "", "", fmt.Errorf("生成 REALITY 密钥失败：%s", strings.TrimSpace(string(output)))
+	}
+	var privateKey, publicKey string
 	for _, line := range strings.Split(string(output), "\n") {
 		key, value, found := strings.Cut(line, ":")
 		if !found {
@@ -747,15 +767,15 @@ func (a *App) prepareRealityInbound(v *config.Inbound) error {
 		}
 		switch strings.TrimSpace(strings.ToLower(key)) {
 		case "privatekey", "private key":
-			v.PrivateKey = strings.TrimSpace(value)
+			privateKey = strings.TrimSpace(value)
 		case "publickey", "public key":
-			v.PublicKey = strings.TrimSpace(value)
+			publicKey = strings.TrimSpace(value)
 		}
 	}
-	if v.PrivateKey == "" || v.PublicKey == "" {
-		return errors.New("sing-box 未返回有效的 REALITY 密钥")
+	if !validRealityKeyPair(privateKey, publicKey) {
+		return "", "", errors.New("sing-box 未返回有效的 REALITY 密钥")
 	}
-	return nil
+	return privateKey, publicKey, nil
 }
 
 func validateInbound(v *config.Inbound) error {
@@ -808,15 +828,24 @@ func validSS2022Key(value string) bool {
 	return err == nil && len(decoded) == 32
 }
 
-func normalizeProtocolSecrets(s *store.Store) error {
+func normalizeProtocolSecrets(s *store.Store, singBoxBin string) error {
 	return s.Update(func(state *config.State) error {
 		types := make(map[string]string, len(state.Inbounds))
 		for _, inbound := range state.Inbounds {
 			types[inbound.ID] = inbound.Type
 		}
 		for i := range state.Inbounds {
-			if state.Inbounds[i].Type == "shadowsocks2022" && !validSS2022Key(state.Inbounds[i].ServerPassword) {
-				state.Inbounds[i].ServerPassword = config.RandomBase64(32)
+			inbound := &state.Inbounds[i]
+			if inbound.Type == "reality" && !validRealityKeyPair(inbound.PrivateKey, inbound.PublicKey) {
+				privateKey, publicKey, err := generateRealityKeypair(singBoxBin)
+				if err != nil {
+					return fmt.Errorf("修复 REALITY 入站 %q 的密钥失败：%w", inbound.Name, err)
+				}
+				inbound.PrivateKey = privateKey
+				inbound.PublicKey = publicKey
+			}
+			if inbound.Type == "shadowsocks2022" && !validSS2022Key(inbound.ServerPassword) {
+				inbound.ServerPassword = config.RandomBase64(32)
 			}
 		}
 		for i := range state.Clients {

@@ -13,6 +13,12 @@ import (
 	"testing"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
+	"github.com/ptfpwcpzy/KotaUI/internal/store"
+)
+
+const (
+	testRealityPrivateKey = "UuMBgl7MXTPx9inmQp2UC7Jcnwc6XYbwDNebonM-FCc"
+	testRealityPublicKey  = "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0"
 )
 
 func testApp(t *testing.T) *App {
@@ -25,6 +31,16 @@ func testApp(t *testing.T) *App {
 	}
 	return application
 }
+func fakeRealityKeypairBinary(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sing-box")
+	body := "#!/bin/sh\nprintf 'PrivateKey: " + testRealityPrivateKey + "\\nPublicKey: " + testRealityPublicKey + "\\n'\n"
+	if err := os.WriteFile(path, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func request(t *testing.T, h http.Handler, method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	var reader *bytes.Reader
@@ -125,26 +141,57 @@ func TestDashboardAndSNITest(t *testing.T) {
 
 func TestRealityKeysAreGeneratedAutomatically(t *testing.T) {
 	a := testApp(t)
-	fake := filepath.Join(t.TempDir(), "sing-box")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\nprintf 'PrivateKey: private-auto\\nPublicKey: public-auto\\n'\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	a.runtime.SingBoxBin = fake
+	a.runtime.SingBoxBin = fakeRealityKeypairBinary(t)
 	w := request(t, a.Handler(), http.MethodPost, "/api/inbounds", map[string]any{"name": "auto", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com"}, login(t, a))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("auto key creation %d: %s", w.Code, w.Body.String())
 	}
 	var created config.Inbound
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
-	if created.PrivateKey != "private-auto" || created.PublicKey != "public-auto" || created.ShortID == "" || created.SNI != "www.cloudflare.com" {
+	if created.PrivateKey != testRealityPrivateKey || created.PublicKey != testRealityPublicKey || created.ShortID == "" || created.SNI != "www.cloudflare.com" {
 		t.Fatalf("unexpected generated inbound %#v", created)
+	}
+}
+
+func TestInvalidRealityKeysAreRegenerated(t *testing.T) {
+	a := testApp(t)
+	a.runtime.SingBoxBin = fakeRealityKeypairBinary(t)
+	inbound := config.Inbound{Type: "reality", HandshakeServer: "www.cloudflare.com", PrivateKey: "legacy-private", PublicKey: "legacy-public"}
+	if err := a.prepareRealityInbound(&inbound); err != nil {
+		t.Fatalf("regenerate reality keys: %v", err)
+	}
+	if inbound.PrivateKey != testRealityPrivateKey || inbound.PublicKey != testRealityPublicKey || !validRealityKeyPair(inbound.PrivateKey, inbound.PublicKey) {
+		t.Fatalf("invalid regenerated keypair: %#v", inbound)
+	}
+}
+
+func TestNewRepairsInvalidRealityKeys(t *testing.T) {
+	dir := t.TempDir()
+	seed, err := store.Open(dir, "example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seed.Update(func(state *config.State) error {
+		state.Inbounds = append(state.Inbounds, config.Inbound{ID: "legacy", Name: "legacy reality", Type: "reality", Listen: "0.0.0.0", Port: 24444, Enabled: true, HandshakeServer: "www.cloudflare.com", HandshakePort: 443, SNI: "www.cloudflare.com", PrivateKey: "legacy-private", PublicKey: "legacy-public", ShortID: "abcdef12"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := config.Runtime{DataDir: dir, Listen: "127.0.0.1:0", PanelPath: "/ptf", Domain: "example.test", AdminUser: "admin", AdminPassword: "test-password", SingBoxBin: fakeRealityKeypairBinary(t), SingBoxConfig: filepath.Join(dir, "sing-box", "config.json")}
+	a, err := New(runtime)
+	if err != nil {
+		t.Fatalf("start with legacy reality state: %v", err)
+	}
+	repaired := a.store.Snapshot().Inbounds[0]
+	if repaired.PrivateKey != testRealityPrivateKey || repaired.PublicKey != testRealityPublicKey || !validRealityKeyPair(repaired.PrivateKey, repaired.PublicKey) {
+		t.Fatalf("legacy state was not repaired: %#v", repaired)
 	}
 }
 
 func TestInboundEditPreservesRealityKeys(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)
-	original := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": "private-old", "publicKey": "public-old", "shortId": "abcdef12"}
+	original := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": testRealityPrivateKey, "publicKey": testRealityPublicKey, "shortId": "abcdef12"}
 	w := request(t, h, http.MethodPost, "/api/inbounds", original, cookie)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create status %d", w.Code)
@@ -157,7 +204,7 @@ func TestInboundEditPreservesRealityKeys(t *testing.T) {
 		t.Fatalf("update status %d: %s", w.Code, w.Body.String())
 	}
 	saved := a.store.Snapshot().Inbounds[0]
-	if saved.PrivateKey != "private-old" || saved.PublicKey != "public-old" || saved.ShortID != "abcdef12" {
+	if saved.PrivateKey != testRealityPrivateKey || saved.PublicKey != testRealityPublicKey || saved.ShortID != "abcdef12" {
 		t.Fatalf("keys were rotated: %#v", saved)
 	}
 }
@@ -165,7 +212,7 @@ func TestInboundEditPreservesRealityKeys(t *testing.T) {
 func TestInboundToggle(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)
-	inbound := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": "private", "publicKey": "public"}
+	inbound := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": testRealityPrivateKey, "publicKey": testRealityPublicKey}
 	w := request(t, h, http.MethodPost, "/api/inbounds", inbound, cookie)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create status %d: %s", w.Code, w.Body.String())
@@ -186,7 +233,7 @@ func TestSupportedInboundValidation(t *testing.T) {
 	if got := request(t, h, http.MethodPost, "/api/inbounds", bad, c).Code; got != http.StatusBadRequest {
 		t.Fatalf("unsupported type %d", got)
 	}
-	reality := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": "private", "publicKey": "public"}
+	reality := map[string]any{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": testRealityPrivateKey, "publicKey": testRealityPublicKey}
 	if got := request(t, h, http.MethodPost, "/api/inbounds", reality, c).Code; got != http.StatusCreated {
 		t.Fatalf("reality %d", got)
 	}
@@ -196,7 +243,7 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)
 	inbounds := []map[string]any{
-		{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": "private", "publicKey": "public", "shortId": "abcdef12"},
+		{"name": "reality", "type": "reality", "port": 24444, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": testRealityPrivateKey, "publicKey": testRealityPublicKey, "shortId": "abcdef12"},
 		{"name": "hy2", "type": "hysteria2", "port": 24445, "sni": "example.test"},
 		{"name": "ss", "type": "shadowsocks2022", "port": 24446},
 	}
