@@ -12,6 +12,7 @@ ADMIN_PASSWORD=${KOTAUI_ADMIN_PASSWORD:-}
 CERT_TYPE=${KOTAUI_CERT_TYPE:-}
 CERT_SUBJECT=${KOTAUI_CERT_SUBJECT:-}
 CERT_EMAIL=${KOTAUI_CERT_EMAIL:-}
+CERTBOT_BIN=${KOTAUI_CERTBOT_BIN:-certbot}
 
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' '请使用 root 身份运行安装器。' >&2; exit 1; }
 
@@ -94,16 +95,29 @@ install_packages(){
   . /etc/os-release 2>/dev/null || true
   step '4 / 5' '安装轻量运行环境与 sing-box 核心'
   case "${ID:-}" in
-    alpine) apk add --no-cache ca-certificates curl git go certbot openssl sing-box ;;
-    debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
+    alpine) apk add --no-cache ca-certificates curl git go certbot openssl sing-box python3 py3-pip py3-virtualenv ;;
+    debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl python3 python3-venv python3-pip; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
     *) fail '当前仅支持 Alpine、Debian 和 Ubuntu。';;
   esac
   ok '运行环境与 sing-box 核心已准备。'
 }
 
+prepare_ip_certbot(){
+  [ "$CERT_TYPE" = ip ] || return 0
+  if "$CERTBOT_BIN" --help all 2>&1 | grep -q -- '--ip-address'; then return 0; fi
+  printf '正在准备支持 IP 证书的 Certbot…\n'
+  venv="$PREFIX/certbot-venv"
+  rm -rf "$venv"
+  python3 -m venv "$venv" || fail '无法创建 Certbot 运行环境。'
+  "$venv/bin/pip" install --quiet --upgrade 'certbot>=5.4' || fail '无法安装支持 IP 证书的 Certbot。'
+  CERTBOT_BIN="$venv/bin/certbot"
+  "$CERTBOT_BIN" --help all 2>&1 | grep -q -- '--ip-address' || fail '新版 Certbot 未提供 IP 证书功能。'
+}
+
 acquire_certificate(){
   step '5 / 5' '申请证书并启用自动续签'
-  if [ "$CERT_TYPE" = domain ]; then certbot certonly --standalone --non-interactive --agree-tos -m "$CERT_EMAIL" -d "$CERT_SUBJECT"; else certbot certonly --standalone --non-interactive --agree-tos -m "$CERT_EMAIL" --ip-address "$CERT_SUBJECT"; fi
+  prepare_ip_certbot
+  if [ "$CERT_TYPE" = domain ]; then "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos -m "$CERT_EMAIL" -d "$CERT_SUBJECT"; else "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos --preferred-profile shortlived -m "$CERT_EMAIL" --ip-address "$CERT_SUBJECT"; fi
   cert_dir="/etc/letsencrypt/live/$CERT_SUBJECT"
   [ -r "$cert_dir/fullchain.pem" ] && [ -r "$cert_dir/privkey.pem" ] || fail '证书文件未生成。'
   mkdir -p "$DATA_DIR/certs" "$DATA_DIR/sing-box" "$PREFIX/bin"
@@ -130,6 +144,7 @@ KOTAUI_TLS_CERT=$DATA_DIR/certs/fullchain.pem
 KOTAUI_TLS_KEY=$DATA_DIR/certs/privkey.pem
 KOTAUI_ADMIN_USER=$ADMIN_USER
 KOTAUI_ADMIN_PASSWORD=$ADMIN_PASSWORD
+KOTAUI_CERTBOT_BIN=$CERTBOT_BIN
 KOTAUI_SINGBOX_BIN=$(command -v sing-box)
 KOTAUI_SINGBOX_CONFIG=$DATA_DIR/sing-box/config.json
 KOTAUI_MANAGE_SINGBOX=1
