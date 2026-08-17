@@ -16,7 +16,7 @@ func (a *App) logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/logs/"), "/")
-	if name != "panel" && name != "singbox" && name != "certificate" {
+	if name != "panel" && name != "singbox" && name != "certificate" && name != "update" {
 		badRequest(w, errors.New("无效日志类型"))
 		return
 	}
@@ -31,6 +31,16 @@ func (a *App) logs(w http.ResponseWriter, r *http.Request) {
 func (a *App) readLogs(name string) (string, error) {
 	if name == "certificate" {
 		return tailFile(filepath.Join(a.runtime.DataDir, "cert-renew.log"), 100)
+	}
+	if name == "update" {
+		if hasSystemd() {
+			output, err := exec.Command("journalctl", "-u", "kota-update", "-n", "160", "--no-pager", "-o", "short-iso").CombinedOutput()
+			if err != nil && len(output) == 0 {
+				return "", err
+			}
+			return strings.TrimSpace(string(output)), nil
+		}
+		return tailFile(filepath.Join(a.runtime.DataDir, "update.log"), 160)
 	}
 	unit := "kotaui"
 	if name == "singbox" {

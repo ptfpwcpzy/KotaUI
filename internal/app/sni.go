@@ -87,7 +87,7 @@ func (a *App) sniTestAll(w http.ResponseWriter, r *http.Request) {
 				result = sniTestResult{Host: host, Port: port, Message: "不建议使用：" + err.Error()}
 			}
 			results[index] = result
-		}(i, candidate.Host, candidate.Port)
+		}(i, candidate.Host, 443)
 	}
 	group.Wait()
 	sort.SliceStable(results, func(i, j int) bool {

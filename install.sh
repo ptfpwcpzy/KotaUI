@@ -133,7 +133,8 @@ install_program(){
   if [ -z "$SOURCE_DIR" ]; then SOURCE_DIR=$(mktemp -d); trap 'rm -rf "$SOURCE_DIR"' EXIT; git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$SOURCE_DIR"; fi
   [ -f "$SOURCE_DIR/go.mod" ] || fail '未找到 KotaUI Go 源码。'
   step '5 / 6' '构建 KotaUI 与用户流量统计核心'
-  install -d -m 755 "$PREFIX" "$PREFIX/bin" "$DATA_DIR" "$DATA_DIR/sing-box"
+  install -d -m 755 "$PREFIX" "$PREFIX/bin" "$DATA_DIR" "$DATA_DIR/sing-box" /usr/local/lib/kotaui
+  install -m 755 "$SOURCE_DIR/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   (cd "$SOURCE_DIR" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
   install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
@@ -172,6 +173,7 @@ install_services(){
   else
     install -m 644 "$SOURCE_DIR/service/kotaui.service" /etc/systemd/system/kotaui.service
     install -m 644 "$SOURCE_DIR/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
+    install -m 644 "$SOURCE_DIR/service/kota-update.service" /etc/systemd/system/kota-update.service
     install -m 644 "$SOURCE_DIR/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service
     install -m 644 "$SOURCE_DIR/service/kota-cert-renew.timer" /etc/systemd/system/kota-cert-renew.timer
     systemctl daemon-reload; systemctl reset-failed kotaui-singbox >/dev/null 2>&1 || true; systemctl enable --now kotaui; systemctl enable --now kotaui-singbox kota-cert-renew.timer

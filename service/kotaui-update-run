@@ -1,0 +1,21 @@
+#!/bin/sh
+set -u
+
+DATA_DIR="${KOTAUI_DATA_DIR:-/var/lib/kotaui}"
+KOTA_BIN="${KOTAUI_KOTA_BIN:-/usr/local/bin/kota}"
+STATUS_FILE="$DATA_DIR/update.status"
+LOG_FILE="$DATA_DIR/update.log"
+
+mkdir -p "$DATA_DIR"
+printf 'running\n' > "$STATUS_FILE"
+printf '\n[%s] 开始独立更新任务\n' "$(date -Iseconds)" >> "$LOG_FILE"
+
+if "$KOTA_BIN" update --yes >> "$LOG_FILE" 2>&1; then
+  printf 'success\n' > "$STATUS_FILE"
+  printf '[%s] 更新任务完成\n' "$(date -Iseconds)" >> "$LOG_FILE"
+  exit 0
+fi
+
+printf 'failed\n' > "$STATUS_FILE"
+printf '[%s] 更新任务失败\n' "$(date -Iseconds)" >> "$LOG_FILE"
+exit 1

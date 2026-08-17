@@ -123,6 +123,33 @@ func TestInboundClientAndSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestNormalizeRealityCandidates(t *testing.T) {
+	candidates, err := normalizeRealityCandidates([]config.RealityCandidate{
+		{Host: "WWW.Cloudflare.COM.", Port: 8443},
+		{Host: "www.cloudflare.com", Port: 443},
+		{Host: "www.microsoft.com", Port: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 || candidates[0].Host != "www.cloudflare.com" || candidates[0].Port != 443 || candidates[1].Port != 443 {
+		t.Fatalf("unexpected candidates: %#v", candidates)
+	}
+	if _, err := normalizeRealityCandidates([]config.RealityCandidate{{Host: "invalid"}}); err == nil {
+		t.Fatal("expected invalid candidate to fail")
+	}
+}
+
+func TestSubscriptionPageShowsMonthlyLimit(t *testing.T) {
+	a := testApp(t)
+	page := a.subscriptionPage(config.Client{Username: "alice", UsedBytes: 5 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, MonthlyUsedBytes: 2 * 1024 * 1024, MonthlyLimitBytes: 10 * 1024 * 1024}, 2, "https://example.test/sub/alice")
+	for _, text := range []string{"每月限额", "本月流量", "累计"} {
+		if !strings.Contains(page, text) {
+			t.Fatalf("subscription page missing %q", text)
+		}
+	}
+}
+
 func TestCertificateStatusShowsExpiry(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -365,6 +392,35 @@ func TestPanelUpdateRequiresAuthentication(t *testing.T) {
 	w := request(t, a.Handler(), http.MethodPost, "/api/update", map[string]string{}, nil)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("update auth status %d", w.Code)
+	}
+	w = request(t, a.Handler(), http.MethodGet, "/api/update/status", nil, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("update status auth %d", w.Code)
+	}
+	w = request(t, a.Handler(), http.MethodGet, "/api/logs/update", nil, nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("update logs auth %d", w.Code)
+	}
+}
+
+func TestUpdateStatusReadsPersistentState(t *testing.T) {
+	a := testApp(t)
+	cookie := login(t, a)
+	for state, wantRunning := range map[string]bool{"running": true, "success": false, "failed": false} {
+		if err := a.writeUpdateState(state); err != nil {
+			t.Fatal(err)
+		}
+		w := request(t, a.Handler(), http.MethodGet, "/api/update/status", nil, cookie)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %s: %d %s", state, w.Code, w.Body.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if running, _ := result["running"].(bool); running != wantRunning {
+			t.Fatalf("state %s running=%v", state, running)
+		}
 	}
 }
 

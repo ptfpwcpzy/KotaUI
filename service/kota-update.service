@@ -1,0 +1,13 @@
+[Unit]
+Description=KotaUI panel, core and script update
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/var/lib/kotaui/runtime.env
+ExecStart=/usr/local/lib/kotaui/kotaui-update-run
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=best-effort
+

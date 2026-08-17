@@ -78,6 +78,8 @@ update(){
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; printf '下载更新失败。\n' >&2; return 1; fi
   if ! sh "$source/service/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"; then rm -rf "$source"; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
   if ! (cd "$source" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui); then rm -rf "$source"; printf '编译更新失败。\n' >&2; return 1; fi
+  install -d -m 755 /usr/local/lib/kotaui
+  install -m 755 "$source/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
   install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
   install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
@@ -85,6 +87,7 @@ update(){
   if [ "$(manager)" = systemd ]; then
     install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service
     install -m 644 "$source/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
+    install -m 644 "$source/service/kota-update.service" /etc/systemd/system/kota-update.service
     install -m 644 "$source/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service
     install -m 644 "$source/service/kota-cert-renew.timer" /etc/systemd/system/kota-cert-renew.timer
     systemctl daemon-reload
@@ -126,7 +129,7 @@ EOF
   svc kotaui stop >/dev/null 2>&1 || true
   if [ "$(manager)" = systemd ]; then
     systemctl disable kotaui kotaui-singbox kota-cert-renew.timer >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/kotaui.service /etc/systemd/system/kotaui-singbox.service /etc/systemd/system/kota-cert-renew.service /etc/systemd/system/kota-cert-renew.timer /usr/local/lib/kotaui/kotaui-singbox-run
+    rm -f /etc/systemd/system/kotaui.service /etc/systemd/system/kotaui-singbox.service /etc/systemd/system/kota-update.service /etc/systemd/system/kota-cert-renew.service /etc/systemd/system/kota-cert-renew.timer /usr/local/lib/kotaui/kotaui-singbox-run /usr/local/lib/kotaui/kotaui-update-run
     systemctl daemon-reload
   else
     rc-update del kotaui default >/dev/null 2>&1 || true
