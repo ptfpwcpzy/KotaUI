@@ -4,6 +4,8 @@ set -eu
 DESTINATION=${1:-/opt/kotaui/sing-box-v2ray}
 VERSION=${KOTAUI_SINGBOX_VERSION:-v1.13.18}
 SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git}
+# 集中维护运行协议与用户流量统计所需的 sing-box 编译能力；新增可选协议时只需在此补充对应标签。
+BUILD_TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic}
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
@@ -18,7 +20,7 @@ if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
 else
   printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
   git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
-  (cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 go build -tags with_v2ray_api,with_utls,with_quic -trimpath -ldflags='-s -w' -o "$WORKDIR/sing-box" ./cmd/sing-box)
+  (cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 go build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$WORKDIR/sing-box" ./cmd/sing-box)
   install -m 755 "$WORKDIR/sing-box" "$DESTINATION"
 fi
 

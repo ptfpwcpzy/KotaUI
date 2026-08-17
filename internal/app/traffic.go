@@ -162,6 +162,7 @@ func (a *App) syncTraffic() {
 				client.DownloadBytes += download
 				client.UsedBytes += delta
 				client.MonthlyUsedBytes += delta
+				client.LastActiveAt = nowTime.UTC()
 			}
 			next.TrafficCounters[client.Username] = now
 			if wasActive != client.Active(nowTime) {

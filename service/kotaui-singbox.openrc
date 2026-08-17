@@ -17,6 +17,14 @@ start_pre() {
   [ -x "$command" ] || { eerror "未找到 sing-box 核心：$command"; return 1; }
 }
 
+start_post() {
+  date +%s > /run/kotaui-singbox.started
+}
+
+stop_post() {
+  rm -f /run/kotaui-singbox.started
+}
+
 depend() {
   need net
   after kotaui

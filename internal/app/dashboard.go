@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,10 +17,11 @@ import (
 )
 
 type certificateInfo struct {
-	Present bool   `json:"present"`
-	Valid   bool   `json:"valid"`
-	Days    int    `json:"days"`
-	Message string `json:"message"`
+	Present   bool   `json:"present"`
+	Valid     bool   `json:"valid"`
+	Days      int    `json:"days"`
+	ExpiresAt string `json:"expiresAt,omitempty"`
+	Message   string `json:"message"`
 }
 
 type healthHint struct {
@@ -26,6 +29,43 @@ type healthHint struct {
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
 	Target string `json:"target"`
+}
+
+const onlineActivityWindow = 20 * time.Second
+
+func recordedUptime(path string, now time.Time) int64 {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	started, err := strconv.ParseInt(strings.TrimSpace(string(body)), 10, 64)
+	if err != nil || started <= 0 {
+		return 0
+	}
+	elapsed := now.Sub(time.Unix(started, 0))
+	if elapsed <= 0 {
+		return 0
+	}
+	return int64(elapsed.Seconds())
+}
+
+func recentOnlineUsers(clients []config.Client, now time.Time) []map[string]any {
+	users := make([]config.Client, 0, 5)
+	for _, client := range clients {
+		if client.Paused || !client.Active(now) || client.LastActiveAt.IsZero() || now.Sub(client.LastActiveAt) > onlineActivityWindow {
+			continue
+		}
+		users = append(users, client)
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].LastActiveAt.After(users[j].LastActiveAt) })
+	if len(users) > 5 {
+		users = users[:5]
+	}
+	out := make([]map[string]any, 0, len(users))
+	for _, client := range users {
+		out = append(out, map[string]any{"username": client.Username, "lastActiveAt": client.LastActiveAt})
+	}
+	return out
 }
 
 func certificateStatus(certPath string) certificateInfo {
@@ -41,11 +81,12 @@ func certificateStatus(certPath string) certificateInfo {
 	if err != nil {
 		return certificateInfo{Present: true, Message: "无法读取证书"}
 	}
+	expiresAt := certificate.NotAfter.Local().Format("2006-01-02")
 	days := int(time.Until(certificate.NotAfter).Hours() / 24)
 	if days < 0 {
-		return certificateInfo{Present: true, Days: days, Message: "证书已过期"}
+		return certificateInfo{Present: true, Days: days, ExpiresAt: expiresAt, Message: "证书已过期"}
 	}
-	return certificateInfo{Present: true, Valid: true, Days: days, Message: "证书有效"}
+	return certificateInfo{Present: true, Valid: true, Days: days, ExpiresAt: expiresAt, Message: "证书有效"}
 }
 
 func dashboardHints(state config.State, certificate certificateInfo, services []map[string]any) []healthHint {

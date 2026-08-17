@@ -8,12 +8,21 @@ set -a
 set +a
 CERTBOT_BIN=${KOTAUI_CERTBOT_BIN:-certbot}
 
-if ! "$CERTBOT_BIN" renew --quiet; then
-  exit 1
+reload_services() {
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl try-restart kotaui kotaui-singbox
+  elif command -v rc-service >/dev/null 2>&1; then
+    rc-service kotaui restart || true
+    rc-service kotaui-singbox restart || true
+  fi
+}
+
+if [ "${1:-}" = "--reload-after-renewal" ]; then
+  reload_services
+  exit 0
 fi
-if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-  systemctl try-restart kotaui kotaui-singbox
-elif command -v rc-service >/dev/null 2>&1; then
-  rc-service kotaui restart || true
-  rc-service kotaui-singbox restart || true
+
+# Certbot 仅在实际签发或续签成功后调用 deploy hook，避免每次例行检查都重启服务。
+if ! "$CERTBOT_BIN" renew --quiet --deploy-hook "$0 --reload-after-renewal"; then
+  exit 1
 fi

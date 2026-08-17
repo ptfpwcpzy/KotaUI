@@ -91,6 +91,7 @@ type Client struct {
 	ExpiresAt         string            `json:"expiresAt,omitempty"`
 	MaxOnlineIPs      int               `json:"maxOnlineIps"`
 	Paused            bool              `json:"paused"`
+	LastActiveAt      time.Time         `json:"lastActiveAt,omitempty"`
 	CreatedAt         time.Time         `json:"createdAt"`
 }
 

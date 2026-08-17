@@ -3,14 +3,22 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
 	"github.com/ptfpwcpzy/KotaUI/internal/store"
@@ -115,6 +123,47 @@ func TestInboundClientAndSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestCertificateStatusShowsExpiry(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := time.Now().Add(9 * 24 * time.Hour).UTC()
+	certificate, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "example.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: expiresAt}, &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "example.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: expiresAt}, publicKey, privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "certificate.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	status := certificateStatus(path)
+	if !status.Valid || status.ExpiresAt != expiresAt.Local().Format("2006-01-02") || status.Days < 8 {
+		t.Fatalf("unexpected certificate status: %#v", status)
+	}
+}
+
+func TestRecentOnlineUsers(t *testing.T) {
+	now := time.Now().UTC()
+	clients := []config.Client{
+		{Username: "fresh", LastActiveAt: now.Add(-5 * time.Second)},
+		{Username: "older", LastActiveAt: now.Add(-15 * time.Second)},
+		{Username: "stale", LastActiveAt: now.Add(-onlineActivityWindow - time.Second)},
+		{Username: "paused", Paused: true, LastActiveAt: now.Add(-time.Second)},
+	}
+	users := recentOnlineUsers(clients, now)
+	if len(users) != 2 || users[0]["username"] != "fresh" || users[1]["username"] != "older" {
+		t.Fatalf("unexpected recent users: %#v", users)
+	}
+	stamp := filepath.Join(t.TempDir(), "core.started")
+	if err := os.WriteFile(stamp, []byte(strconv.FormatInt(now.Add(-90*time.Second).Unix(), 10)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := recordedUptime(stamp, now); got < 89 || got > 91 {
+		t.Fatalf("uptime = %d", got)
+	}
+}
+
 func TestDashboardAndSNITest(t *testing.T) {
 	a := testApp(t)
 	h := a.Handler()

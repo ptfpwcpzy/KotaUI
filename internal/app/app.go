@@ -42,6 +42,7 @@ type App struct {
 	trafficSyncInterval time.Duration
 	updateMu            sync.Mutex
 	updateRunning       bool
+	startedAt           time.Time
 	sniProbe            sniProbeFunc
 }
 
@@ -73,7 +74,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 3 * time.Second, sniProbe: probeSNI}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, startedAt: time.Now().UTC(), sniProbe: probeSNI}, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -106,6 +107,7 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Serve() error {
+	go a.syncTrafficLoop()
 	server := &http.Server{Addr: a.runtime.Listen, Handler: a.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	if a.runtime.TLSCert != "" && a.runtime.TLSKey != "" {
 		if _, err := os.Stat(a.runtime.TLSCert); err == nil {
@@ -113,6 +115,15 @@ func (a *App) Serve() error {
 		}
 	}
 	return server.ListenAndServe()
+}
+
+func (a *App) syncTrafficLoop() {
+	a.syncTraffic()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		a.syncTraffic()
+	}
 }
 
 func (a *App) ServeSubscription() error {
@@ -225,6 +236,9 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metrics":             system.Collect(a.runtime.DataDir, ports),
 		"activeClients":       active,
+		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
+		"panelUptime":         int64(time.Since(a.startedAt).Seconds()),
+		"coreUptime":          recordedUptime("/run/kotaui-singbox.started", time.Now()),
 		"inboundCount":        len(s.Inbounds),
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,
