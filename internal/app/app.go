@@ -832,8 +832,15 @@ func validateInbound(v *config.Inbound) error {
 		if v.SNI == "" {
 			return errors.New("Hysteria 2 需要 TLS server_name")
 		}
-		v.UpMbps = 500
-		v.DownMbps = 500
+		if v.UpMbps == 0 {
+			v.UpMbps = 500
+		}
+		if v.DownMbps == 0 {
+			v.DownMbps = 500
+		}
+		if v.UpMbps < 1 || v.UpMbps > 100000 || v.DownMbps < 1 || v.DownMbps > 100000 {
+			return errors.New("Hysteria 2 上下行带宽必须在 1–100000 Mbps 之间")
+		}
 	case "shadowsocks2022":
 		if v.ServerPassword == "" {
 			v.ServerPassword = config.RandomBase64(32)

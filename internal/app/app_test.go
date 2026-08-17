@@ -364,17 +364,26 @@ func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
 	}
 }
 
-func TestHysteriaBandwidthIsFixed(t *testing.T) {
+func TestHysteriaBandwidthCanBeConfigured(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)
-	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "fixed-hy2", "type": "hysteria2", "port": 24448, "sni": "example.test", "upMbps": 1, "downMbps": 2}, cookie)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "custom-hy2", "type": "hysteria2", "port": 24448, "sni": "example.test", "upMbps": 100, "downMbps": 200}, cookie)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create hysteria2: %d %s", w.Code, w.Body.String())
 	}
-	var created config.Inbound
-	_ = json.Unmarshal(w.Body.Bytes(), &created)
-	if created.UpMbps != 500 || created.DownMbps != 500 {
-		t.Fatalf("hysteria2 bandwidth %d/%d", created.UpMbps, created.DownMbps)
+	var custom config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &custom)
+	if custom.UpMbps != 100 || custom.DownMbps != 200 {
+		t.Fatalf("custom hysteria2 bandwidth %d/%d", custom.UpMbps, custom.DownMbps)
+	}
+	w = request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "default-hy2", "type": "hysteria2", "port": 24449, "sni": "example.test"}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create default hysteria2: %d %s", w.Code, w.Body.String())
+	}
+	var defaults config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &defaults)
+	if defaults.UpMbps != 500 || defaults.DownMbps != 500 {
+		t.Fatalf("default hysteria2 bandwidth %d/%d", defaults.UpMbps, defaults.DownMbps)
 	}
 }
 
