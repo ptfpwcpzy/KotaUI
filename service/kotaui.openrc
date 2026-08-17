@@ -1,5 +1,9 @@
 #!/sbin/openrc-run
 name="KotaUI"
+runtime_env=/var/lib/kotaui/runtime.env
+[ -r /etc/conf.d/kotaui ] && . /etc/conf.d/kotaui
+runtime_env=${KOTAUI_RUNTIME_ENV:-$runtime_env}
+[ -r "$runtime_env" ] && set -a && . "$runtime_env" && set +a
 command="/opt/kotaui/kotaui"
 command_background="yes"
 pidfile="/run/kotaui.pid"
@@ -13,5 +17,5 @@ depend() {
 }
 
 start_pre() {
-  export KOTAUI_DATA_DIR="${KOTAUI_RUNTIME_ENV:-/var/lib/kotaui}"
+  [ -r "$runtime_env" ] || { eerror "未找到 KotaUI 运行配置：$runtime_env"; return 1; }
 }

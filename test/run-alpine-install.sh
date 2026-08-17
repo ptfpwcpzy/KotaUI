@@ -16,7 +16,7 @@ mkdir -p "$ROOTFS/opt/kotaui-source" "$ROOTFS/usr/local/bin"
 install -m 755 "$SOURCE/test/fake-rc-service.sh" "$ROOTFS/usr/local/bin/rc-service"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$ROOTFS/usr/local/bin/rc-update"
 printf '%s\n' '#!/bin/sh' 'set -eu' 'case "${1:-}" in --help) echo "  --ip-address IP_ADDRESS"; exit 0;; renew) exit 0;; esac' 'subject=""; ip=0; profile=""; email=""' 'while [ "$#" -gt 0 ]; do case "$1" in -d) subject="$2"; shift 2;; -m) email="$2"; shift 2;; --ip-address) subject="$2"; ip=1; shift 2;; --preferred-profile) profile="$2"; shift 2;; *) shift;; esac; done' '[ -n "$subject" ] || exit 1' '[ "$email" != *"@example.com" ] || exit 1' 'case "$email" in kotaui-*@gmail.com) ;; *) exit 1;; esac' '[ "$ip" -eq 0 ] || [ "$profile" = shortlived ] || exit 1' 'mkdir -p "/etc/letsencrypt/live/$subject"' 'openssl req -x509 -newkey rsa:2048 -nodes -keyout "/etc/letsencrypt/live/$subject/privkey.pem" -out "/etc/letsencrypt/live/$subject/fullchain.pem" -subj "/CN=$subject" -days 7 >/dev/null 2>&1' > "$ROOTFS/usr/local/bin/certbot"
-printf '%s\n' '#!/bin/sh' 'case "${1:-}" in check) exit 0;; *) exit 0;; esac' > "$ROOTFS/usr/local/bin/kotaui-sim-singbox"
+printf '%s\n' '#!/bin/sh' 'case "${1:-}" in check) exit 0;; run) trap "exit 0" INT TERM; while :; do sleep 1; done;; *) exit 1;; esac' > "$ROOTFS/usr/local/bin/kotaui-sim-singbox"
 chmod 755 "$ROOTFS/usr/local/bin/rc-update" "$ROOTFS/usr/local/bin/certbot" "$ROOTFS/usr/local/bin/kotaui-sim-singbox"
 
 unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
@@ -51,7 +51,12 @@ unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
     grep -q KOTAUI_PANEL_PATH=/ptf /var/lib/kotaui/runtime.env
     grep -q KOTAUI_CERT_TYPE=$EXPECTED_CERT_TYPE /var/lib/kotaui/runtime.env
     grep -q KOTAUI_SINGBOX_BIN=/opt/kotaui/sing-box-v2ray /var/lib/kotaui/runtime.env
+    grep -q KOTAUI_RUNTIME_ENV /etc/init.d/kotaui
+    grep -q KOTAUI_RUNTIME_ENV /etc/init.d/kotaui-singbox
+    rc-service kotaui status
+    rc-service kotaui-singbox status
     /usr/local/bin/kota check
+    ! grep -q runtime.env:\ not\ a\ directory /run/kotaui-sim/kotaui.log
     echo ALPINE_GO_INSTALL_SIMULATION_PASS
   "
 '

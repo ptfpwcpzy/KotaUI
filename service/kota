@@ -94,6 +94,8 @@ update(){
   else
     install -m 755 "$source/service/kotaui.openrc" /etc/init.d/kotaui
     install -m 755 "$source/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
+    install -d -m 755 /etc/conf.d
+    printf 'KOTAUI_RUNTIME_ENV="%s/runtime.env"\n' "$DATA_DIR" > /etc/conf.d/kotaui
     install -m 755 "$source/service/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew
     rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
   fi

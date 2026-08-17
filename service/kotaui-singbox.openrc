@@ -1,5 +1,9 @@
 #!/sbin/openrc-run
 name="KotaUI sing-box"
+runtime_env=/var/lib/kotaui/runtime.env
+[ -r /etc/conf.d/kotaui ] && . /etc/conf.d/kotaui
+runtime_env=${KOTAUI_RUNTIME_ENV:-$runtime_env}
+[ -r "$runtime_env" ] && set -a && . "$runtime_env" && set +a
 command="${KOTAUI_SINGBOX_BIN:-/usr/local/bin/sing-box}"
 command_args="run -c ${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}"
 command_background="yes"
@@ -7,6 +11,11 @@ pidfile="/run/kotaui-singbox.pid"
 command_user="root"
 output_log="/var/log/kotaui-singbox.log"
 error_log="/var/log/kotaui-singbox.log"
+
+start_pre() {
+  [ -r "$runtime_env" ] || { eerror "未找到 KotaUI 运行配置：$runtime_env"; return 1; }
+  [ -x "$command" ] || { eerror "未找到 sing-box 核心：$command"; return 1; }
+}
 
 depend() {
   need net

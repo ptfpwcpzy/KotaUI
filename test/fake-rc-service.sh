@@ -7,8 +7,19 @@ run_dir=/run/kotaui-sim
 mkdir -p "$run_dir"
 pid_file="$run_dir/${service}.pid"
 
+load_runtime(){
+  runtime_env=/var/lib/kotaui/runtime.env
+  [ -r /etc/conf.d/kotaui ] && . /etc/conf.d/kotaui
+  runtime_env=${KOTAUI_RUNTIME_ENV:-$runtime_env}
+  [ -r "$runtime_env" ] || return 1
+  set -a
+  . "$runtime_env"
+  set +a
+}
+
 start(){
   if [ -r "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then return 0; fi
+  load_runtime
   case "$service" in
     kotaui) nohup /opt/kotaui/kotaui >"$run_dir/kotaui.log" 2>&1 & ;;
     kotaui-singbox) nohup "${KOTAUI_SINGBOX_BIN:-/usr/bin/sing-box}" run -c "${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}" >"$run_dir/kotaui-singbox.log" 2>&1 & ;;
