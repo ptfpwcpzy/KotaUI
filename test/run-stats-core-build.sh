@@ -23,11 +23,14 @@ cat > "$FAKE_BIN/go" <<'EOF'
 set -eu
 [ -f go.mod ] || { echo 'go.mod file not found in current directory' >&2; exit 1; }
 out=""
+tags=""
 previous=""
 for arg in "$@"; do
+  if [ "$previous" = "-tags" ]; then tags="$arg"; fi
   if [ "$previous" = "-o" ]; then out="$arg"; break; fi
   previous="$arg"
 done
+[ "$tags" = "with_v2ray_api,with_utls,with_quic" ] || { echo "缺少 sing-box 兼容特性编译标签" >&2; exit 65; }
 [ -n "$out" ] || exit 64
 cat > "$out" <<'SH'
 #!/bin/sh
