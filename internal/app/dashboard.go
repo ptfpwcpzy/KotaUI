@@ -120,6 +120,13 @@ func (a *App) serviceAction(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("无效操作"))
 		return
 	}
+	a.updateMu.Lock()
+	updating := a.updateRunning
+	a.updateMu.Unlock()
+	if updating {
+		writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "message": "面板更新正在执行，请等待更新完成后再操作服务"})
+		return
+	}
 	unit := "kotaui"
 	if parts[0] == "singbox" {
 		unit = "kotaui-singbox"
@@ -129,6 +136,14 @@ func (a *App) serviceAction(w http.ResponseWriter, r *http.Request) {
 		command = exec.Command("systemctl", parts[1], unit)
 	} else {
 		command = exec.Command("rc-service", unit, parts[1])
+	}
+	if parts[0] == "panel" && parts[1] == "restart" {
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "面板正在重启，请稍候等待自动恢复"})
+		go func() {
+			time.Sleep(250 * time.Millisecond)
+			_ = command.Run()
+		}()
+		return
 	}
 	if output, err := command.CombinedOutput(); err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": strings.TrimSpace(string(output))})

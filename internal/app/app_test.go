@@ -319,6 +319,28 @@ func TestPanelUpdateRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestPanelRestartAcknowledgesBeforeServiceStop(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/services/panel/restart", map[string]string{}, cookie)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("panel restart status %d: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body["ok"] != true {
+		t.Fatalf("panel restart response: %#v", body)
+	}
+}
+
+func TestServiceActionsBlockedDuringPanelUpdate(t *testing.T) {
+	a := testApp(t)
+	a.updateRunning = true
+	w := request(t, a.Handler(), http.MethodPost, "/api/services/singbox/restart", map[string]string{}, login(t, a))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "更新正在执行") {
+		t.Fatalf("service action during update: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)
