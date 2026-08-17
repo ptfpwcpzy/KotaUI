@@ -55,18 +55,40 @@ func (s *Store) Snapshot() config.State {
 }
 
 func (s *Store) Update(fn func(*config.State) error) error {
+	return s.UpdateWith(fn, nil)
+}
+
+// UpdateWith applies a derived artifact for the candidate state before committing it.
+// If persistence fails, apply is called again with the previous state as a best-effort rollback.
+func (s *Store) UpdateWith(fn func(*config.State) error, apply func(config.State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := clone(s.data)
 	candidate := clone(s.data)
 	if err := fn(&candidate); err != nil {
 		return err
 	}
+	if apply != nil {
+		if err := apply(candidate); err != nil {
+			return err
+		}
+	}
+	if err := s.save(candidate); err != nil {
+		if apply != nil {
+			_ = apply(previous)
+		}
+		return err
+	}
 	s.data = candidate
-	return s.saveLocked()
+	return nil
 }
 
 func (s *Store) saveLocked() error {
-	body, err := json.MarshalIndent(s.data, "", "  ")
+	return s.save(s.data)
+}
+
+func (s *Store) save(state config.State) error {
+	body, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}

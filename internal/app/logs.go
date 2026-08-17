@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -57,10 +58,33 @@ func (a *App) readLogs(name string) (string, error) {
 }
 
 func tailFile(file string, lines int) (string, error) {
-	body, err := os.ReadFile(file)
+	const maxTailBytes int64 = 256 * 1024
+	f, err := os.Open(file)
 	if os.IsNotExist(err) {
 		return "暂无日志。", nil
 	}
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	offset := info.Size() - maxTailBytes
+	if offset > 0 {
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			return "", err
+		}
+		// Discard the partial first line after seeking into the file.
+		buffer := make([]byte, 1)
+		for {
+			if _, err := f.Read(buffer); err != nil || buffer[0] == '\n' {
+				break
+			}
+		}
+	}
+	body, err := io.ReadAll(io.LimitReader(f, maxTailBytes))
 	if err != nil {
 		return "", err
 	}

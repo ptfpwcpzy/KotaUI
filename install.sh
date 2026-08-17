@@ -89,17 +89,19 @@ choose_panel(){
 choose_admin(){
   step '3 / 6' '设置管理员账号和密码'
   while [ -z "$ADMIN_USER" ]; do ADMIN_USER=$(ask '管理员账号： '); done
-  while [ -z "$ADMIN_PASSWORD" ]; do
-    ADMIN_PASSWORD=$(ask '管理员密码（输入内容会显示，仅输入一次）： ')
-    [ -n "$ADMIN_PASSWORD" ] || printf '密码不能为空。\n'
-  done
+	while :; do
+		[ -n "$ADMIN_PASSWORD" ] || ADMIN_PASSWORD=$(ask '管理员密码（输入内容会显示，仅输入一次）： ')
+		[ "${#ADMIN_PASSWORD}" -ge 8 ] && break
+		printf '密码至少需要 8 个字符。\n'
+		ADMIN_PASSWORD=
+	done
 }
 
 install_packages(){
   . /etc/os-release 2>/dev/null || true
   step '4 / 6' '安装轻量运行环境与 sing-box 核心'
   case "${ID:-}" in
-    alpine) apk add --no-cache ca-certificates curl git go certbot openssl sing-box python3 py3-pip py3-virtualenv ;;
+    alpine) apk add --no-cache ca-certificates curl git go certbot openssl python3 py3-pip py3-virtualenv; apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community sing-box ;;
     debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl python3 python3-venv python3-pip; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
     *) fail '当前仅支持 Alpine、Debian 和 Ubuntu。';;
   esac
@@ -110,8 +112,9 @@ prepare_ip_certbot(){
   [ "$CERT_TYPE" = ip ] || return 0
   if "$CERTBOT_BIN" --help all 2>&1 | grep -q -- '--ip-address'; then return 0; fi
   printf '正在准备支持 IP 证书的 Certbot…\n'
-  venv="$PREFIX/certbot-venv"
-  rm -rf "$venv"
+	install -d -m 755 "$PREFIX"
+	venv="$PREFIX/certbot-venv"
+	rm -rf "$venv"
   python3 -m venv "$venv" || fail '无法创建 Certbot 运行环境。'
   "$venv/bin/pip" install --quiet --upgrade 'certbot>=5.4' || fail '无法安装支持 IP 证书的 Certbot。'
   CERTBOT_BIN="$venv/bin/certbot"
@@ -203,6 +206,7 @@ choose_certificate
 choose_panel
 choose_admin
 install_packages
+prepare_ip_certbot
 install_program
 acquire_certificate
 install_services

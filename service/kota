@@ -44,6 +44,7 @@ service_menu(){
 health(){
   result=0
   curl -kfsS --max-time 3 "https://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || result=1
+  curl -ksS --max-time 3 -o /dev/null "https://127.0.0.1:${KOTAUI_SUBSCRIPTION_PORT:-1109}/__health_probe" || result=1
   "$KOTAUI_SINGBOX_BIN" check -c "$KOTAUI_SINGBOX_CONFIG" >/dev/null 2>&1 || result=1
   [ "$result" -eq 0 ] && printf '健康检查通过。\n' || printf '健康检查失败，请查看服务日志。\n' >&2
   pause
@@ -76,8 +77,12 @@ update(){
   fi
   source=$(mktemp -d)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; printf '下载更新失败。\n' >&2; return 1; fi
-  if ! sh "$source/service/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"; then rm -rf "$source"; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
-  if ! (cd "$source" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui); then rm -rf "$source"; printf '编译更新失败。\n' >&2; return 1; fi
+  if ! sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
+  if ! (cd "$source" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
+  install -m 755 "$source/kotaui" "$PREFIX/kotaui.new"
+  install -m 755 "$source/sing-box-v2ray" "$PREFIX/sing-box-v2ray.new"
+  mv -f "$PREFIX/kotaui.new" "$PREFIX/kotaui"
+  mv -f "$PREFIX/sing-box-v2ray.new" "$PREFIX/sing-box-v2ray"
   install -d -m 755 /usr/local/lib/kotaui
   install -m 755 "$source/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
@@ -129,7 +134,7 @@ EOF
   svc kotaui stop >/dev/null 2>&1 || true
   if [ "$(manager)" = systemd ]; then
     systemctl disable kotaui kotaui-singbox kota-cert-renew.timer >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/kotaui.service /etc/systemd/system/kotaui-singbox.service /etc/systemd/system/kota-update.service /etc/systemd/system/kota-cert-renew.service /etc/systemd/system/kota-cert-renew.timer /usr/local/lib/kotaui/kotaui-singbox-run /usr/local/lib/kotaui/kotaui-update-run
+    rm -f /etc/systemd/system/kotaui.service /etc/systemd/system/kotaui-singbox.service /etc/systemd/system/kota-update.service /etc/systemd/system/kota-cert-renew.service /etc/systemd/system/kota-cert-renew.timer /usr/local/lib/kotaui/kotaui-update-run
     systemctl daemon-reload
   else
     rc-update del kotaui default >/dev/null 2>&1 || true

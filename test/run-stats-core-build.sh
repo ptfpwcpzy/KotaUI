@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-SOURCE=${KOTAUI_SOURCE:-/home/ubuntu/KotaUI}
+SOURCE=${KOTAUI_SOURCE:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}
 EXPECTED_BUILD_TAGS=${EXPECTED_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic}
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM

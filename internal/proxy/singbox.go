@@ -140,7 +140,13 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 				query.Set("headerType", "none")
 				links = append(links, fmt.Sprintf("vless://%s@%s:%d?%s#%s", url.PathEscape(secret), host, inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "hysteria2":
-				query := url.Values{"sni": []string{runtime.Domain}, "insecure": []string{"0"}, "obfs": []string{"none"}}
+				query := url.Values{"sni": []string{runtime.Domain}, "insecure": []string{"0"}}
+				if inbound.ObfsPassword != "" {
+					query.Set("obfs", "salamander")
+					query.Set("obfs-password", inbound.ObfsPassword)
+				} else {
+					query.Set("obfs", "none")
+				}
 				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "shadowsocks2022":
 				// SS2022 multi-user mode requires the server EIH key followed by the user key.

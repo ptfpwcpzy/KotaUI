@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
-	"github.com/ptfpwcpzy/KotaUI/internal/proxy"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -184,7 +183,7 @@ func (a *App) syncTraffic() {
 		return nil
 	})
 	if reloadCore {
-		if err := proxy.Write(a.store.Snapshot(), a.runtime); err == nil && a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
+		if err := writeAndValidateConfig(a.store.Snapshot(), a.runtime); err == nil && a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
 			if hasSystemd() {
 				_ = exec.Command("systemctl", "restart", "kotaui-singbox").Run()
 			} else {

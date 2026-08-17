@@ -42,8 +42,6 @@ type TrafficCounters struct {
 }
 
 type Settings struct {
-	PanelName         string             `json:"panelName"`
-	TitleEnabled      bool               `json:"titleEnabled"`
 	Domain            string             `json:"domain"`
 	SubscriptionPath  string             `json:"subscriptionPath"`
 	RealityCandidates []RealityCandidate `json:"realityCandidates"`
@@ -103,7 +101,7 @@ func DefaultState(domain string) State {
 		{Host: "www.adobe.com", Port: 443}, {Host: "www.ibm.com", Port: 443},
 		{Host: "www.oracle.com", Port: 443}, {Host: "www.mozilla.org", Port: 443},
 	}
-	return State{Settings: Settings{PanelName: "KotaUI", TitleEnabled: true, Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
+	return State{Settings: Settings{Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
 }
 
 func NewID() string            { return randomHex(16) }
@@ -139,7 +137,7 @@ func (c Client) Active(now time.Time) bool {
 		return false
 	}
 	if c.ExpiresAt != "" {
-		if expiry, err := time.Parse("2006-01-02", c.ExpiresAt); err == nil && now.After(expiry.Add(24*time.Hour)) {
+		if expiry, err := time.ParseInLocation("2006-01-02", c.ExpiresAt, time.Local); err != nil || !now.Before(expiry.AddDate(0, 0, 1)) {
 			return false
 		}
 	}

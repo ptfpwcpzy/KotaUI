@@ -14,14 +14,14 @@ command -v git >/dev/null 2>&1 || { printf '%s\n' '未找到 git，无法构建�
 command -v go >/dev/null 2>&1 || { printf '%s\n' '未找到 Go，无法构建兼容 sing-box 核心。' >&2; exit 1; }
 
 install -d -m 755 "$(dirname "$DESTINATION")"
+CANDIDATE="$WORKDIR/sing-box"
 if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
   [ -x "$KOTAUI_SINGBOX_STATS_CORE" ] || { printf '%s\n' '指定的统计核心不可执行。' >&2; exit 1; }
-  install -m 755 "$KOTAUI_SINGBOX_STATS_CORE" "$DESTINATION"
+  install -m 755 "$KOTAUI_SINGBOX_STATS_CORE" "$CANDIDATE"
 else
   printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
   git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
-  (cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 go build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$WORKDIR/sing-box" ./cmd/sing-box)
-  install -m 755 "$WORKDIR/sing-box" "$DESTINATION"
+  (cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 go build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$CANDIDATE" ./cmd/sing-box)
 fi
 
 CHECK_CONFIG="$WORKDIR/check.json"
@@ -37,5 +37,8 @@ cat > "$CHECK_CONFIG" <<'EOF'
   "outbounds": [{"type":"direct","tag":"direct"}]
 }
 EOF
-"$DESTINATION" check -c "$CHECK_CONFIG" >/dev/null
+"$CANDIDATE" check -c "$CHECK_CONFIG" >/dev/null
+TEMP_DESTINATION="$DESTINATION.new"
+install -m 755 "$CANDIDATE" "$TEMP_DESTINATION"
+mv -f "$TEMP_DESTINATION" "$DESTINATION"
 printf '兼容 sing-box 核心已准备完成。\n'

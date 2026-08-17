@@ -2,7 +2,7 @@
 set -eu
 
 ROOTFS=/tmp/kotaui-go-alpine
-SOURCE=/home/ubuntu/KotaUI
+SOURCE=${KOTAUI_SOURCE:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}
 CERT_TYPE=${SIM_CERT_TYPE:-domain}
 CERT_SUBJECT=${SIM_CERT_SUBJECT:-panel.example.test}
 PROMPT_CERT=${SIM_PROMPT_CERT:-}

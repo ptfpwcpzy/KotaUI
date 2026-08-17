@@ -71,7 +71,7 @@ func New(runtime config.Runtime) (*App, error) {
 	if err := normalizeProtocolSecrets(s, runtime.SingBoxBin); err != nil {
 		return nil, err
 	}
-	if err := proxy.Write(s.Snapshot(), runtime); err != nil {
+	if err := writeAndValidateConfig(s.Snapshot(), runtime); err != nil {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
@@ -81,7 +81,7 @@ func New(runtime config.Runtime) (*App, error) {
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", a.health)
-	mux.HandleFunc("/kota-sub/", a.subscription)
+	mux.HandleFunc(a.store.Snapshot().Settings.SubscriptionPath+"/", a.subscription)
 	mux.HandleFunc("/api/login", a.login)
 	mux.HandleFunc("/api/logout", a.logout)
 	mux.HandleFunc("/api/state", a.auth(a.state))
@@ -274,8 +274,14 @@ func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
 		}
 		inbound.ID = config.NewID()
 		inbound.Enabled = true
-		if err := a.mutate(func(s *config.State) error { s.Inbounds = append(s.Inbounds, inbound); return nil }); err != nil {
-			serverError(w, err)
+		if err := a.mutate(func(s *config.State) error {
+			if err := validateInboundPort(s.Inbounds, inbound, ""); err != nil {
+				return err
+			}
+			s.Inbounds = append(s.Inbounds, inbound)
+			return nil
+		}); err != nil {
+			badRequest(w, err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, inbound)
@@ -334,6 +340,9 @@ func (a *App) inboundAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.mutate(func(s *config.State) error {
+			if err := validateInboundPort(s.Inbounds, incoming, id); err != nil {
+				return err
+			}
 			for i := range s.Inbounds {
 				if s.Inbounds[i].ID == id {
 					incoming.ID = id
@@ -377,72 +386,6 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		a.resetMonth()
 		a.syncTraffic()
 		writeJSON(w, http.StatusOK, a.store.Snapshot().Clients)
-	case http.MethodPatch:
-		var incoming config.Client
-		if err := decodeJSON(r, &incoming); err != nil {
-			badRequest(w, err)
-			return
-		}
-		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients"), "/")
-		if len(parts) < 2 || parts[1] == "" {
-			badRequest(w, errors.New("客户端 ID 不能为空"))
-			return
-		}
-		id := parts[1]
-		if !usernamePattern.MatchString(incoming.Username) || len(incoming.InboundIDs) == 0 {
-			badRequest(w, errors.New("客户端用户名或入站绑定无效"))
-			return
-		}
-		if err := a.mutate(func(s *config.State) error {
-			var target *config.Client
-			for i := range s.Clients {
-				if s.Clients[i].ID == id {
-					target = &s.Clients[i]
-					break
-				}
-			}
-			if target == nil {
-				return errors.New("客户端不存在")
-			}
-			for _, other := range s.Clients {
-				if other.ID != id && other.Username == incoming.Username {
-					return errors.New("用户名已存在")
-				}
-			}
-			types := make(map[string]string, len(s.Inbounds))
-			for _, inbound := range s.Inbounds {
-				types[inbound.ID] = inbound.Type
-			}
-			credentials := map[string]string{}
-			for _, inboundID := range incoming.InboundIDs {
-				protocol, exists := types[inboundID]
-				if !exists {
-					return errors.New("选择的入站不存在")
-				}
-				secret := target.Credentials[inboundID]
-				if secret == "" {
-					if protocol == "shadowsocks2022" {
-						secret = config.RandomBase64(32)
-					} else {
-						secret = config.RandomToken(16)
-					}
-				}
-				credentials[inboundID] = secret
-			}
-			target.Username = incoming.Username
-			target.Note = incoming.Note
-			target.InboundIDs = incoming.InboundIDs
-			target.Credentials = credentials
-			target.TotalLimitBytes = incoming.TotalLimitBytes
-			target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
-			target.ExpiresAt = incoming.ExpiresAt
-			target.MaxOnlineIPs = incoming.MaxOnlineIPs
-			return nil
-		}); err != nil {
-			badRequest(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	case http.MethodPost:
 		var client config.Client
 
@@ -450,12 +393,8 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err)
 			return
 		}
-		if !usernamePattern.MatchString(client.Username) {
-			badRequest(w, errors.New("用户名仅允许 3–32 位字母、数字、下划线或连字符"))
-			return
-		}
-		if len(client.InboundIDs) == 0 {
-			badRequest(w, errors.New("至少选择一个入站"))
+		if err := validateClientInput(client); err != nil {
+			badRequest(w, err)
 			return
 		}
 		client.ID = config.NewID()
@@ -563,8 +502,8 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateClient(id string, incoming config.Client) error {
-	if !usernamePattern.MatchString(incoming.Username) || len(incoming.InboundIDs) == 0 {
-		return errors.New("客户端用户名或入站绑定无效")
+	if err := validateClientInput(incoming); err != nil {
+		return err
 	}
 	return a.mutate(func(s *config.State) error {
 		var target *config.Client
@@ -637,10 +576,6 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		incoming.RealityCandidates = candidates
 	}
 	err := a.mutate(func(s *config.State) error {
-		if strings.TrimSpace(incoming.PanelName) != "" {
-			s.Settings.PanelName = strings.TrimSpace(incoming.PanelName)
-		}
-		s.Settings.TitleEnabled = incoming.TitleEnabled
 		if incoming.RealityCandidates != nil {
 			s.Settings.RealityCandidates = incoming.RealityCandidates
 		}
@@ -673,16 +608,9 @@ func normalizeRealityCandidates(values []config.RealityCandidate) ([]config.Real
 }
 
 func (a *App) validateConfig(w http.ResponseWriter, _ *http.Request) {
-	if err := proxy.Write(a.store.Snapshot(), a.runtime); err != nil {
-		serverError(w, err)
+	if err := writeAndValidateConfig(a.store.Snapshot(), a.runtime); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "output": err.Error()})
 		return
-	}
-	if filePresent(a.runtime.SingBoxBin) {
-		cmd := exec.Command(a.runtime.SingBoxBin, "check", "-c", a.runtime.SingBoxConfig)
-		if output, e := cmd.CombinedOutput(); e != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "output": string(output)})
-			return
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -721,6 +649,7 @@ func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client
 	}
 	if client.ExpiresAt != "" {
 		if expires, err := time.ParseInLocation("2006-01-02", client.ExpiresAt, time.Local); err == nil {
+			expires = expires.AddDate(0, 0, 1).Add(-time.Second)
 			fields = append(fields, "expire="+strconv.FormatInt(expires.Unix(), 10))
 		}
 	}
@@ -757,10 +686,9 @@ func (a *App) subscriptionPage(client config.Client, linkCount int, subscription
 func (a *App) mutate(fn func(*config.State) error) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if err := a.store.Update(fn); err != nil {
-		return err
-	}
-	if err := proxy.Write(a.store.Snapshot(), a.runtime); err != nil {
+	if err := a.store.UpdateWith(fn, func(candidate config.State) error {
+		return writeAndValidateConfig(candidate, a.runtime)
+	}); err != nil {
 		return err
 	}
 	if a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
@@ -862,6 +790,9 @@ func validateInbound(v *config.Inbound) error {
 	if v.Name == "" {
 		return errors.New("入站名称不能为空")
 	}
+	if len([]rune(v.Name)) > 64 {
+		return errors.New("入站名称不能超过 64 个字符")
+	}
 	if v.UseIPv6 {
 		v.Listen = "::"
 	} else if v.Listen == "" || v.Listen == "::" {
@@ -878,6 +809,15 @@ func validateInbound(v *config.Inbound) error {
 		if v.HandshakeServer == "" || v.SNI == "" || v.PrivateKey == "" || v.PublicKey == "" {
 			return errors.New("REALITY 目标、SNI 和密钥不能为空")
 		}
+		server, err := normalizeSNIHost(v.HandshakeServer)
+		if err != nil {
+			return fmt.Errorf("REALITY 目标无效：%w", err)
+		}
+		sni, err := normalizeSNIHost(v.SNI)
+		if err != nil {
+			return fmt.Errorf("REALITY SNI 无效：%w", err)
+		}
+		v.HandshakeServer, v.SNI = server, sni
 		if v.HandshakePort == 0 {
 			v.HandshakePort = 443
 		}
@@ -888,6 +828,11 @@ func validateInbound(v *config.Inbound) error {
 		if v.SNI == "" {
 			return errors.New("Hysteria 2 需要 TLS server_name")
 		}
+		sni, err := normalizeSNIHost(v.SNI)
+		if err != nil {
+			return fmt.Errorf("Hysteria 2 TLS server_name 无效：%w", err)
+		}
+		v.SNI = sni
 		if v.UpMbps == 0 {
 			v.UpMbps = 500
 		}
