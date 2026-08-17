@@ -99,8 +99,17 @@ func formatBytes(value int64) string {
 	return fmt.Sprintf("%.1f GB", float64(value)/(1024*1024*1024))
 }
 
+var systemdAvailable = hasSystemd
+
+func serviceCommand(unit, action string) *exec.Cmd {
+	if systemdAvailable() {
+		return exec.Command("systemctl", action, unit)
+	}
+	return exec.Command("rc-service", unit, action)
+}
+
 func serviceRunning(name string) bool {
-	if hasSystemd() {
+	if systemdAvailable() {
 		return exec.Command("systemctl", "is-active", "--quiet", name).Run() == nil
 	}
 	return exec.Command("rc-service", name, "status").Run() == nil
@@ -131,12 +140,7 @@ func (a *App) serviceAction(w http.ResponseWriter, r *http.Request) {
 	if parts[0] == "singbox" {
 		unit = "kotaui-singbox"
 	}
-	var command *exec.Cmd
-	if hasSystemd() {
-		command = exec.Command("systemctl", parts[1], unit)
-	} else {
-		command = exec.Command("rc-service", unit, parts[1])
-	}
+	command := serviceCommand(unit, parts[1])
 	if parts[0] == "panel" && parts[1] == "restart" {
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "message": "面板正在重启，请稍候等待自动恢复"})
 		go func() {

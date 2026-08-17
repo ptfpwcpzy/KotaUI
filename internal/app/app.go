@@ -708,7 +708,7 @@ func (a *App) mutate(fn func(*config.State) error) error {
 		return err
 	}
 	if a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
-		return exec.Command("systemctl", "restart", "kotaui-singbox").Run()
+		return serviceCommand("kotaui-singbox", "restart").Run()
 	}
 	return nil
 }

@@ -439,3 +439,46 @@ func TestNormalizeProtocolSecretsRepairsLegacyShadowsocksKey(t *testing.T) {
 		t.Fatalf("legacy SS2022 keys were not repaired: %#v", state)
 	}
 }
+
+func TestInboundMutationUsesOpenRCServiceRestart(t *testing.T) {
+	previous := systemdAvailable
+	systemdAvailable = func() bool { return false }
+	t.Cleanup(func() { systemdAvailable = previous })
+
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "rc-service.log")
+	script := filepath.Join(binDir, "rc-service")
+	body := "#!/bin/sh\nprintf '%s %s\\n' \"$1\" \"$2\" > \"$KOTAUI_TEST_SERVICE_LOG\"\n"
+	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("KOTAUI_TEST_SERVICE_LOG", logPath)
+
+	a := testApp(t)
+	a.runtime.ManageSingBox = true
+	a.runtime.SingBoxBin = fakeRealityKeypairBinary(t)
+	w := request(t, a.Handler(), http.MethodPost, "/api/inbounds", map[string]any{
+		"name": "alpine-hy2", "type": "hysteria2", "port": 24443, "sni": "example.test",
+	}, login(t, a))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("OpenRC inbound create: %d %s", w.Code, w.Body.String())
+	}
+	output, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(output); got != "kotaui-singbox restart\n" {
+		t.Fatalf("unexpected OpenRC command %q", got)
+	}
+}
+
+func TestServiceCommandSelectsOpenRC(t *testing.T) {
+	previous := systemdAvailable
+	systemdAvailable = func() bool { return false }
+	t.Cleanup(func() { systemdAvailable = previous })
+	command := serviceCommand("kotaui-singbox", "restart")
+	if len(command.Args) != 3 || command.Args[0] != "rc-service" || command.Args[1] != "kotaui-singbox" || command.Args[2] != "restart" {
+		t.Fatalf("unexpected OpenRC command %#v", command.Args)
+	}
+}
