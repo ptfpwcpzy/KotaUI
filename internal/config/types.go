@@ -45,6 +45,7 @@ type Settings struct {
 	Domain            string             `json:"domain"`
 	SubscriptionPath  string             `json:"subscriptionPath"`
 	RealityCandidates []RealityCandidate `json:"realityCandidates"`
+	OutboundStrategy  string             `json:"outboundStrategy"`
 }
 
 type RealityCandidate struct {
@@ -101,7 +102,7 @@ func DefaultState(domain string) State {
 		{Host: "www.adobe.com", Port: 443}, {Host: "www.ibm.com", Port: 443},
 		{Host: "www.oracle.com", Port: 443}, {Host: "www.mozilla.org", Port: 443},
 	}
-	return State{Settings: Settings{Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
+	return State{Settings: Settings{Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates, OutboundStrategy: "auto"}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
 }
 
 func NewID() string            { return randomHex(16) }

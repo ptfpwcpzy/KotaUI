@@ -51,3 +51,40 @@ func TestHysteriaSubscriptionCarriesObfsParameters(t *testing.T) {
 		t.Fatalf("unexpected Hysteria subscription: %q", link)
 	}
 }
+
+func TestWriteAppliesOutboundAddressStrategy(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		strategy string
+		want     string
+	}{
+		{name: "automatic", strategy: "auto", want: ""},
+		{name: "prefer ipv4", strategy: "prefer_ipv4", want: "prefer_ipv4"},
+		{name: "ipv6 only", strategy: "ipv6_only", want: "ipv6_only"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			state := config.DefaultState("example.test")
+			state.Settings.OutboundStrategy = test.strategy
+			runtime := config.Runtime{SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+			if err := Write(state, runtime); err != nil {
+				t.Fatal(err)
+			}
+			body, err := os.ReadFile(runtime.SingBoxConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded struct {
+				Outbounds []struct {
+					DomainStrategy string `json:"domain_strategy"`
+				} `json:"outbounds"`
+			}
+			if err := json.Unmarshal(body, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if len(decoded.Outbounds) != 1 || decoded.Outbounds[0].DomainStrategy != test.want {
+				t.Fatalf("strategy = %q, want %q", decoded.Outbounds[0].DomainStrategy, test.want)
+			}
+		})
+	}
+}

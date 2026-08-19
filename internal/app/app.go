@@ -575,9 +575,20 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		incoming.RealityCandidates = candidates
 	}
+	if incoming.OutboundStrategy != "" {
+		strategy, err := normalizeOutboundStrategy(incoming.OutboundStrategy)
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
+		incoming.OutboundStrategy = strategy
+	}
 	err := a.mutate(func(s *config.State) error {
 		if incoming.RealityCandidates != nil {
 			s.Settings.RealityCandidates = incoming.RealityCandidates
+		}
+		if incoming.OutboundStrategy != "" {
+			s.Settings.OutboundStrategy = incoming.OutboundStrategy
 		}
 		return nil
 	})
@@ -605,6 +616,16 @@ func normalizeRealityCandidates(values []config.RealityCandidate) ([]config.Real
 		out = append(out, config.RealityCandidate{Host: host, Port: 443})
 	}
 	return out, nil
+}
+
+func normalizeOutboundStrategy(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	switch value {
+	case "auto", "prefer_ipv4", "prefer_ipv6", "ipv4_only", "ipv6_only":
+		return value, nil
+	default:
+		return "", errors.New("出站网络策略无效")
+	}
 }
 
 func (a *App) validateConfig(w http.ResponseWriter, _ *http.Request) {

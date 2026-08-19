@@ -65,10 +65,14 @@ func Write(state config.State, runtime config.Runtime) error {
 		}
 	}
 	sort.Strings(statsUsers)
+	directOutbound := map[string]any{"type": "direct", "tag": "direct"}
+	if strategy := state.Settings.OutboundStrategy; strategy != "" && strategy != "auto" {
+		directOutbound["domain_strategy"] = strategy
+	}
 	root := map[string]any{
 		"log":       map[string]any{"level": "warn", "timestamp": true},
 		"inbounds":  inbounds,
-		"outbounds": []map[string]any{{"type": "direct", "tag": "direct"}},
+		"outbounds": []map[string]any{directOutbound},
 		"experimental": map[string]any{
 			"v2ray_api": map[string]any{
 				"listen": fmt.Sprintf("127.0.0.1:%d", runtime.StatsPort),
