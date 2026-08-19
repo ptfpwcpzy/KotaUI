@@ -39,7 +39,11 @@ func (a *App) readLogs(name string) (string, error) {
 			if err != nil && len(output) == 0 {
 				return "", err
 			}
-			return strings.TrimSpace(string(output)), nil
+			buildLog, buildErr := tailFile(filepath.Join(a.runtime.DataDir, "update.log"), 160)
+			if buildErr != nil {
+				return "", buildErr
+			}
+			return strings.TrimSpace("更新服务日志：\n" + string(output) + "\n\n更新过程日志：\n" + buildLog), nil
 		}
 		return tailFile(filepath.Join(a.runtime.DataDir, "update.log"), 160)
 	}

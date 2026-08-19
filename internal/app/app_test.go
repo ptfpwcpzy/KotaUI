@@ -572,7 +572,7 @@ func TestInboundMutationUsesOpenRCServiceRestart(t *testing.T) {
 	binDir := t.TempDir()
 	logPath := filepath.Join(binDir, "rc-service.log")
 	script := filepath.Join(binDir, "rc-service")
-	body := "#!/bin/sh\nprintf '%s %s\\n' \"$1\" \"$2\" > \"$KOTAUI_TEST_SERVICE_LOG\"\n"
+	body := "#!/bin/sh\nprintf '%s %s\\n' \"$1\" \"$2\" >> \"$KOTAUI_TEST_SERVICE_LOG\"\n[ \"$2\" = status ] && exit 0\nexit 0\n"
 	if err := os.WriteFile(script, []byte(body), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +592,7 @@ func TestInboundMutationUsesOpenRCServiceRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := string(output); got != "kotaui-singbox restart\n" {
+	if got := string(output); got != "kotaui-singbox restart\nkotaui-singbox status\n" {
 		t.Fatalf("unexpected OpenRC command %q", got)
 	}
 }

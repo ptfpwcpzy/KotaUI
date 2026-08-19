@@ -15,8 +15,12 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	if a.readUpdateState() == "running" && systemdAvailable() && !updateServiceActive() && a.updateStateStale() {
-		a.finishUpdate("failed", "上一更新任务已停止，请查看更新日志后重新尝试。")
+	if a.readUpdateState() == "running" && !a.updateIsRunning() {
+		a.finishUpdate("failed", "上一更新任务未完成或已停止，请查看更新日志后重新尝试。")
+	}
+	if a.updateIsRunning() {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "更新任务正在执行，请稍候"})
+		return
 	}
 	a.updateMu.Lock()
 	if a.updateRunning {
@@ -33,7 +37,7 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err := a.writeUpdateState("running"); err != nil {
+	if err := a.writeUpdateProgress("running", "正在启动独立更新服务…"); err != nil {
 		a.finishUpdate("failed", "无法记录更新状态")
 		serverError(w, err)
 		return
@@ -46,7 +50,7 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 			serverError(w, errors.New("无法启动独立更新服务："+strings.TrimSpace(string(output))))
 			return
 		}
-		a.setUpdateMessage("正在下载、构建并替换面板与核心，请勿关闭页面。")
+		a.setUpdateMessage("更新服务已启动，正在等待任务上报阶段进度…")
 		writeJSON(w, http.StatusAccepted, map[string]string{"message": "已启动独立更新任务，完成后会自动重启服务"})
 		return
 	}
@@ -86,9 +90,14 @@ func (a *App) updateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, progress := a.readUpdateProgress()
-	if state == "running" && systemdAvailable() && !updateServiceActive() && a.updateStateStale() {
+	if state == "running" && !a.updateIsRunning() {
 		state = "failed"
 		progress = "更新任务已停止，请查看更新日志后重新尝试。"
+		_ = a.writeUpdateProgress(state, progress)
+	}
+	if state == "running" && strings.Contains(progress, "正在启动独立更新服务") && a.updateStateOlderThan(time.Minute) {
+		state = "failed"
+		progress = "更新服务启动后未上报进度，请查看更新日志后重新尝试。"
 		_ = a.writeUpdateProgress(state, progress)
 	}
 	a.updateMu.Lock()
@@ -124,8 +133,12 @@ func (a *App) updateStatePath() string {
 }
 
 func (a *App) updateStateStale() bool {
+	return a.updateStateOlderThan(15 * time.Second)
+}
+
+func (a *App) updateStateOlderThan(age time.Duration) bool {
 	info, err := os.Stat(a.updateStatePath())
-	return err == nil && time.Since(info.ModTime()) > 15*time.Second
+	return err == nil && time.Since(info.ModTime()) > age
 }
 
 func (a *App) writeUpdateState(state string) error {
@@ -138,11 +151,13 @@ func (a *App) readUpdateState() string {
 }
 
 func (a *App) writeUpdateProgress(state, message string) error {
-	body := state + "\n"
-	if message != "" {
-		body += strings.TrimSpace(message) + "\n"
+	path := a.updateStatePath()
+	body := strings.TrimSpace(state) + "\n" + strings.TrimSpace(message) + "\n"
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, []byte(body), 0600); err != nil {
+		return err
 	}
-	return os.WriteFile(a.updateStatePath(), []byte(body), 0600)
+	return os.Rename(temporary, path)
 }
 
 func (a *App) readUpdateProgress() (string, string) {
@@ -174,6 +189,29 @@ func (a *App) finishUpdate(state, message string) {
 	a.updateMu.Unlock()
 }
 
+func (a *App) updateIsRunning() bool {
+	a.updateMu.Lock()
+	inMemory := a.updateRunning
+	a.updateMu.Unlock()
+	state, _ := a.readUpdateProgress()
+	if state != "running" {
+		return inMemory
+	}
+	if systemdAvailable() {
+		return updateServiceActive() || !a.updateStateStale()
+	}
+	return inMemory || !a.updateStateStale()
+}
+
 func updateServiceActive() bool {
-	return exec.Command("systemctl", "is-active", "--quiet", "kota-update.service").Run() == nil
+	output, err := exec.Command("systemctl", "show", "kota-update.service", "--property=ActiveState", "--value").Output()
+	if err != nil {
+		return false
+	}
+	switch strings.TrimSpace(string(output)) {
+	case "active", "activating", "reloading":
+		return true
+	default:
+		return false
+	}
 }

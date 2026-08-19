@@ -170,16 +170,25 @@ func (a *App) serviceAction(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, errors.New("无效操作"))
 		return
 	}
-	a.updateMu.Lock()
-	updating := a.updateRunning
-	a.updateMu.Unlock()
-	if updating {
+	if a.updateIsRunning() {
 		writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "message": "面板更新正在执行，请等待更新完成后再操作服务"})
 		return
 	}
 	unit := "kotaui"
 	if parts[0] == "singbox" {
 		unit = "kotaui-singbox"
+	}
+	if parts[0] == "singbox" && (parts[1] == "restart" || parts[1] == "start") {
+		if err := serviceCommand(unit, parts[1]).Run(); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "sing-box 核心操作失败：" + err.Error()})
+			return
+		}
+		if err := waitForServiceRunning(unit, serviceRecoveryTimeout); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "sing-box 核心已恢复运行"})
+		return
 	}
 	command := serviceCommand(unit, parts[1])
 	if parts[0] == "panel" && parts[1] == "restart" {

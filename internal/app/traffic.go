@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -184,11 +183,7 @@ func (a *App) syncTraffic() {
 	})
 	if reloadCore {
 		if err := writeAndValidateConfig(a.store.Snapshot(), a.runtime); err == nil && a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
-			if hasSystemd() {
-				_ = exec.Command("systemctl", "restart", "kotaui-singbox").Run()
-			} else {
-				_ = exec.Command("rc-service", "kotaui-singbox", "restart").Run()
-			}
+			_ = a.restartManagedSingBox()
 		}
 	}
 }

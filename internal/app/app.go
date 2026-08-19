@@ -99,6 +99,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/update", a.auth(a.updatePanel))
 	mux.HandleFunc("/api/update/status", a.auth(a.updateStatus))
 	mux.HandleFunc("/api/certificate/renew", a.auth(a.renewCertificate))
+	mux.HandleFunc("/api/certificate/status", a.auth(a.certificateRenewStatus))
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
@@ -593,10 +594,16 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		serverError(w, err)
+		serverError(w, fmt.Errorf("设置已保存但尚未完全应用：%w", err))
 		return
 	}
-	writeJSON(w, http.StatusOK, a.store.Snapshot().Settings)
+	settings := a.store.Snapshot().Settings
+	message := "设置已保存并生效。"
+	coreRestarted := a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin)
+	if coreRestarted {
+		message = "设置已保存，sing-box 核心已重启并确认恢复，出站策略已生效。"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": settings, "applied": true, "coreRestarted": coreRestarted, "message": message})
 }
 func normalizeRealityCandidates(values []config.RealityCandidate) ([]config.RealityCandidate, error) {
 	if len(values) > 64 {
@@ -705,6 +712,9 @@ func (a *App) subscriptionPage(client config.Client, linkCount int, subscription
 }
 
 func (a *App) mutate(fn func(*config.State) error) error {
+	if a.updateIsRunning() {
+		return errors.New("面板更新正在执行，暂不能修改配置")
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.store.UpdateWith(fn, func(candidate config.State) error {
@@ -712,14 +722,22 @@ func (a *App) mutate(fn func(*config.State) error) error {
 	}); err != nil {
 		return err
 	}
-	if a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
-		return serviceCommand("kotaui-singbox", "restart").Run()
-	}
-	return nil
+	return a.restartManagedSingBox()
 }
 func (a *App) resetMonth() {
 	current := time.Now().Format("2006-01")
-	_ = a.store.Update(func(s *config.State) error {
+	snapshot := a.store.Snapshot()
+	needsReset := false
+	for _, client := range snapshot.Clients {
+		if client.Month != current {
+			needsReset = true
+			break
+		}
+	}
+	if !needsReset {
+		return
+	}
+	_ = a.mutate(func(s *config.State) error {
 		for i := range s.Clients {
 			if s.Clients[i].Month != current {
 				s.Clients[i].Month = current

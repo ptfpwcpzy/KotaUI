@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 )
@@ -15,6 +16,16 @@ func TestSettingsUpdatesOutboundStrategy(t *testing.T) {
 	}
 	if got := a.store.Snapshot().Settings.OutboundStrategy; got != "prefer_ipv4" {
 		t.Fatalf("stored strategy = %q", got)
+	}
+	var response struct {
+		Applied bool   `json:"applied"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Applied || response.Message == "" {
+		t.Fatalf("settings response = %#v", response)
 	}
 
 	w = request(t, a.Handler(), http.MethodPut, "/api/settings", map[string]string{"outboundStrategy": "invalid"}, cookie)
