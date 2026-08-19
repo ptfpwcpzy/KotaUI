@@ -7,15 +7,17 @@ STATUS_FILE="$DATA_DIR/update.status"
 LOG_FILE="$DATA_DIR/update.log"
 
 mkdir -p "$DATA_DIR"
-printf 'running\n' > "$STATUS_FILE"
+write_status(){ printf '%s\n%s\n' "$1" "$2" > "$STATUS_FILE"; }
+write_status running '正在准备独立更新任务…'
 printf '\n[%s] 开始独立更新任务\n' "$(date -Iseconds)" >> "$LOG_FILE"
 
-if "$KOTA_BIN" update --yes >> "$LOG_FILE" 2>&1; then
-  printf 'success\n' > "$STATUS_FILE"
+write_status running '正在下载最新项目源码…'
+if KOTAUI_PANEL_UPDATE=1 "$KOTA_BIN" update --yes >> "$LOG_FILE" 2>&1; then
+	write_status success '更新完成，面板与核心正在恢复。'
   printf '[%s] 更新任务完成\n' "$(date -Iseconds)" >> "$LOG_FILE"
   exit 0
 fi
 
-printf 'failed\n' > "$STATUS_FILE"
+write_status failed '更新失败，请查看更新日志后重试。'
 printf '[%s] 更新任务失败\n' "$(date -Iseconds)" >> "$LOG_FILE"
 exit 1

@@ -424,6 +424,25 @@ func TestUpdateStatusReadsPersistentState(t *testing.T) {
 	}
 }
 
+func TestUpdateStatusReturnsPersistentProgressMessage(t *testing.T) {
+	a := testApp(t)
+	cookie := login(t, a)
+	if err := a.writeUpdateProgress("running", "正在构建 KotaUI 面板程序…"); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, a.Handler(), http.MethodGet, "/api/update/status", nil, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d %s", w.Code, w.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["running"] != true || result["message"] != "正在构建 KotaUI 面板程序…" {
+		t.Fatalf("unexpected progress: %#v", result)
+	}
+}
+
 func TestPanelRestartAcknowledgesBeforeServiceStop(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)

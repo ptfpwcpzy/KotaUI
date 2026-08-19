@@ -15,6 +15,9 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
+	if a.readUpdateState() == "running" && systemdAvailable() && !updateServiceActive() && a.updateStateStale() {
+		a.finishUpdate("failed", "上一更新任务已停止，请查看更新日志后重新尝试。")
+	}
 	a.updateMu.Lock()
 	if a.updateRunning {
 		a.updateMu.Unlock()
@@ -37,6 +40,7 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if systemdAvailable() {
+		_ = exec.Command("systemctl", "reset-failed", "kota-update.service").Run()
 		if output, err := exec.Command("systemctl", "start", "--no-block", "kota-update.service").CombinedOutput(); err != nil {
 			a.finishUpdate("failed", "无法启动独立更新服务")
 			serverError(w, errors.New("无法启动独立更新服务："+strings.TrimSpace(string(output))))
@@ -81,21 +85,36 @@ func (a *App) updateStatus(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	state := a.readUpdateState()
+	state, progress := a.readUpdateProgress()
+	if state == "running" && systemdAvailable() && !updateServiceActive() && a.updateStateStale() {
+		state = "failed"
+		progress = "更新任务已停止，请查看更新日志后重新尝试。"
+		_ = a.writeUpdateProgress(state, progress)
+	}
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
 	switch state {
 	case "running":
 		a.updateRunning = true
-		if a.updateMessage == "" {
+		if progress != "" {
+			a.updateMessage = progress
+		} else if a.updateMessage == "" {
 			a.updateMessage = "正在下载、构建并替换面板与核心，请勿关闭页面。"
 		}
 	case "success":
 		a.updateRunning = false
-		a.updateMessage = "更新完成，服务正在恢复。"
+		if progress != "" {
+			a.updateMessage = progress
+		} else {
+			a.updateMessage = "更新完成，服务正在恢复。"
+		}
 	case "failed":
 		a.updateRunning = false
-		a.updateMessage = "更新失败，请查看更新日志。"
+		if progress != "" {
+			a.updateMessage = progress
+		} else {
+			a.updateMessage = "更新失败，请查看更新日志。"
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"running": a.updateRunning, "message": a.updateMessage})
 }
@@ -104,16 +123,41 @@ func (a *App) updateStatePath() string {
 	return filepath.Join(a.runtime.DataDir, "update.status")
 }
 
+func (a *App) updateStateStale() bool {
+	info, err := os.Stat(a.updateStatePath())
+	return err == nil && time.Since(info.ModTime()) > 15*time.Second
+}
+
 func (a *App) writeUpdateState(state string) error {
-	return os.WriteFile(a.updateStatePath(), []byte(state+"\n"), 0600)
+	return a.writeUpdateProgress(state, "")
 }
 
 func (a *App) readUpdateState() string {
+	state, _ := a.readUpdateProgress()
+	return state
+}
+
+func (a *App) writeUpdateProgress(state, message string) error {
+	body := state + "\n"
+	if message != "" {
+		body += strings.TrimSpace(message) + "\n"
+	}
+	return os.WriteFile(a.updateStatePath(), []byte(body), 0600)
+}
+
+func (a *App) readUpdateProgress() (string, string) {
 	body, err := os.ReadFile(a.updateStatePath())
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(string(body))
+	parts := strings.SplitN(strings.TrimSpace(string(body)), "\n", 2)
+	if len(parts) == 0 {
+		return "", ""
+	}
+	if len(parts) == 1 {
+		return strings.TrimSpace(parts[0]), ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
 
 func (a *App) setUpdateMessage(message string) {
@@ -123,9 +167,13 @@ func (a *App) setUpdateMessage(message string) {
 }
 
 func (a *App) finishUpdate(state, message string) {
-	_ = a.writeUpdateState(state)
+	_ = a.writeUpdateProgress(state, message)
 	a.updateMu.Lock()
 	a.updateRunning = false
 	a.updateMessage = message
 	a.updateMu.Unlock()
+}
+
+func updateServiceActive() bool {
+	return exec.Command("systemctl", "is-active", "--quiet", "kota-update.service").Run() == nil
 }
