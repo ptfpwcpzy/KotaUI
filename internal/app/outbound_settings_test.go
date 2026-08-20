@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestSettingsUpdatesOutboundStrategy(t *testing.T) {
@@ -11,7 +12,7 @@ func TestSettingsUpdatesOutboundStrategy(t *testing.T) {
 	cookie := login(t, a)
 
 	w := request(t, a.Handler(), http.MethodPut, "/api/settings", map[string]string{"outboundStrategy": "prefer_ipv4"}, cookie)
-	if w.Code != http.StatusOK {
+	if w.Code != http.StatusAccepted {
 		t.Fatalf("update status = %d: %s", w.Code, w.Body.String())
 	}
 	if got := a.store.Snapshot().Settings.OutboundStrategy; got != "prefer_ipv4" {
@@ -24,8 +25,15 @@ func TestSettingsUpdatesOutboundStrategy(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if !response.Applied || response.Message == "" {
+	if response.Applied || response.Message == "" {
 		t.Fatalf("settings response = %#v", response)
+	}
+	deadline := time.Now().Add(time.Second)
+	for a.settingsApplyInProgress() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if a.settingsApplyInProgress() {
+		t.Fatal("settings apply task did not finish")
 	}
 
 	w = request(t, a.Handler(), http.MethodPut, "/api/settings", map[string]string{"outboundStrategy": "invalid"}, cookie)

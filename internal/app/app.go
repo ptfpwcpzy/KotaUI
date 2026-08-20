@@ -43,6 +43,8 @@ type App struct {
 	updateMu            sync.Mutex
 	updateRunning       bool
 	updateMessage       string
+	settingsApplyMu     sync.Mutex
+	settingsApplying    bool
 	startedAt           time.Time
 	sniProbe            sniProbeFunc
 }
@@ -92,6 +94,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/clients", a.auth(a.clients))
 	mux.HandleFunc("/api/clients/", a.auth(a.clientAction))
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
+	mux.HandleFunc("/api/settings/status", a.auth(a.settingsApplyStatus))
 	mux.HandleFunc("/api/config/validate", a.auth(a.validateConfig))
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
 	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
@@ -584,7 +587,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		incoming.OutboundStrategy = strategy
 	}
-	err := a.mutate(func(s *config.State) error {
+	err := a.startSettingsApply(func(s *config.State) error {
 		if incoming.RealityCandidates != nil {
 			s.Settings.RealityCandidates = incoming.RealityCandidates
 		}
@@ -594,16 +597,11 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		serverError(w, fmt.Errorf("设置已保存但尚未完全应用：%w", err))
+		serverError(w, err)
 		return
 	}
 	settings := a.store.Snapshot().Settings
-	message := "设置已保存并生效。"
-	coreRestarted := a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin)
-	if coreRestarted {
-		message = "设置已保存，sing-box 核心已重启并确认恢复，出站策略已生效。"
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings, "applied": true, "coreRestarted": coreRestarted, "message": message})
+	writeJSON(w, http.StatusAccepted, map[string]any{"settings": settings, "applied": false, "message": "设置已保存，正在重启 sing-box 核心并检查恢复。"})
 }
 func normalizeRealityCandidates(values []config.RealityCandidate) ([]config.RealityCandidate, error) {
 	if len(values) > 64 {
@@ -714,6 +712,9 @@ func (a *App) subscriptionPage(client config.Client, linkCount int, subscription
 func (a *App) mutate(fn func(*config.State) error) error {
 	if a.updateIsRunning() {
 		return errors.New("面板更新正在执行，暂不能修改配置")
+	}
+	if a.settingsApplyInProgress() {
+		return errors.New("设置正在应用，暂不能修改配置")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
