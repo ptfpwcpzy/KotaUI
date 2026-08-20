@@ -41,3 +41,28 @@ func TestSettingsUpdatesOutboundStrategy(t *testing.T) {
 		t.Fatalf("invalid strategy status = %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestSettingsSavesRealityCandidatesWithoutCoreReload(t *testing.T) {
+	a := testApp(t)
+	cookie := login(t, a)
+	w := request(t, a.Handler(), http.MethodPut, "/api/settings", map[string]any{
+		"realityCandidates": []map[string]any{{"host": "www.example.com", "port": 443}},
+	}, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("candidate save status = %d: %s", w.Code, w.Body.String())
+	}
+	var response struct {
+		Applied bool   `json:"applied"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Applied || response.Message == "" || a.settingsApplyInProgress() {
+		t.Fatalf("candidate save response = %#v, applying=%v", response, a.settingsApplyInProgress())
+	}
+	candidates := a.store.Snapshot().Settings.RealityCandidates
+	if len(candidates) != 1 || candidates[0].Host != "www.example.com" {
+		t.Fatalf("stored candidates = %#v", candidates)
+	}
+}

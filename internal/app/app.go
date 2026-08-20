@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -588,6 +589,31 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		incoming.OutboundStrategy = strategy
 	}
+	current := a.store.Snapshot().Settings
+	outboundChanged := incoming.OutboundStrategy != "" && incoming.OutboundStrategy != current.OutboundStrategy
+	candidatesChanged := incoming.RealityCandidates != nil && !reflect.DeepEqual(incoming.RealityCandidates, current.RealityCandidates)
+	if !outboundChanged {
+		if !candidatesChanged {
+			writeJSON(w, http.StatusOK, map[string]any{"settings": current, "applied": true, "message": "设置没有变化，当前配置已生效。"})
+			return
+		}
+		if a.updateIsRunning() || a.settingsApplyInProgress() {
+			serverError(w, errors.New("维护任务正在执行，暂不能保存候选伪装域名"))
+			return
+		}
+		a.mu.Lock()
+		err := a.store.Update(func(s *config.State) error {
+			s.Settings.RealityCandidates = incoming.RealityCandidates
+			return nil
+		})
+		a.mu.Unlock()
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"settings": a.store.Snapshot().Settings, "applied": true, "message": "候选伪装域名已保存，不需要重启 sing-box 核心。"})
+		return
+	}
 	err := a.startSettingsApply(func(s *config.State) error {
 		if incoming.RealityCandidates != nil {
 			s.Settings.RealityCandidates = incoming.RealityCandidates
@@ -602,7 +628,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := a.store.Snapshot().Settings
-	writeJSON(w, http.StatusAccepted, map[string]any{"settings": settings, "applied": false, "message": "设置已保存，正在重启 sing-box 核心并检查恢复。"})
+	writeJSON(w, http.StatusAccepted, map[string]any{"settings": settings, "applied": false, "message": "出站网络策略已保存，正在重启 sing-box 核心并检查恢复。"})
 }
 func normalizeRealityCandidates(values []config.RealityCandidate) ([]config.RealityCandidate, error) {
 	if len(values) > 64 {
