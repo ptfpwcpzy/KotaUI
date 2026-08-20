@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+runtime_env=${KOTAUI_RUNTIME_ENV:-/var/lib/kotaui/runtime.env}
+timeout=${KOTAUI_CORE_READY_TIMEOUT:-30}
+
+case "$timeout" in ''|*[!0-9]*) timeout=30;; esac
+[ "$timeout" -gt 0 ] || timeout=30
+[ -r "$runtime_env" ] || { printf '%s\n' "未找到 KotaUI 运行配置：$runtime_env" >&2; exit 1; }
+
+set -a
+. "$runtime_env"
+set +a
+
+core=${KOTAUI_SINGBOX_BIN:-/usr/local/bin/sing-box}
+config=${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}
+[ -x "$core" ] || { printf '%s\n' "未找到 sing-box 核心：$core" >&2; exit 1; }
+
+attempt=0
+while [ "$attempt" -lt "$timeout" ]; do
+	if [ -s "$config" ] && "$core" check -c "$config" >/dev/null 2>&1; then exit 0; fi
+	attempt=$((attempt + 1))
+	sleep 1
+done
+
+printf '%s\n' "等待 sing-box 配置就绪超时：$config" >&2
+exit 1

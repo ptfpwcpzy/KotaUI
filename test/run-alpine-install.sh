@@ -47,7 +47,8 @@ unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
     esac
     test -x /opt/kotaui/kotaui
     test -x /usr/local/bin/kota
-    test -x /opt/kotaui/sing-box-v2ray
+	test -x /opt/kotaui/sing-box-v2ray
+	test -x /usr/local/lib/kotaui/kotaui-wait-singbox-config
     test -f /var/lib/kotaui/runtime.env
     grep -q KOTAUI_PANEL_PORT=1989 /var/lib/kotaui/runtime.env
     grep -q KOTAUI_PANEL_PATH=/ptf /var/lib/kotaui/runtime.env
@@ -55,9 +56,11 @@ unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
     grep -q KOTAUI_SINGBOX_BIN=/opt/kotaui/sing-box-v2ray /var/lib/kotaui/runtime.env
     grep -q KOTAUI_RUNTIME_ENV /etc/init.d/kotaui
     grep -q KOTAUI_RUNTIME_ENV /etc/init.d/kotaui-singbox
-    rc-service kotaui status
-    rc-service kotaui-singbox status
-    /usr/local/bin/kota check
+	rc-service kotaui status
+	rc-service kotaui-singbox status
+	rc-service kotaui-singbox restart
+	rc-service kotaui-singbox status
+	/usr/local/bin/kota check
     ! grep -q runtime.env:\ not\ a\ directory /run/kotaui-sim/kotaui.log
     echo ALPINE_GO_INSTALL_SIMULATION_PASS
   "

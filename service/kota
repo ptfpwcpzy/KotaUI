@@ -106,8 +106,9 @@ update(){
   install -d -m 755 /usr/local/lib/kotaui
   install -m 755 "$source/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
-  install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
-  install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+	install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+	install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+	install -m 755 "$source/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
   sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
 	if grep -q '^KOTAUI_GO_BIN=' "$RUNTIME_ENV"; then sed -i "s|^KOTAUI_GO_BIN=.*|KOTAUI_GO_BIN=$GO_BIN|" "$RUNTIME_ENV"; else printf 'KOTAUI_GO_BIN=%s\n' "$GO_BIN" >> "$RUNTIME_ENV"; fi
   update_status running '正在重启面板与 sing-box 核心…'

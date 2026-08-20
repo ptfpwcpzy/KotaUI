@@ -13,9 +13,9 @@ output_log="/var/log/kotaui-singbox.log"
 error_log="/var/log/kotaui-singbox.log"
 
 start_pre() {
-  [ -r "$runtime_env" ] || { eerror "未找到 KotaUI 运行配置：$runtime_env"; return 1; }
-  [ -x "$command" ] || { eerror "未找到 sing-box 核心：$command"; return 1; }
-  [ -s "${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}" ] || { eerror "未找到 sing-box 配置文件"; return 1; }
+	[ -r "$runtime_env" ] || { eerror "未找到 KotaUI 运行配置：$runtime_env"; return 1; }
+	[ -x "$command" ] || { eerror "未找到 sing-box 核心：$command"; return 1; }
+	/usr/local/lib/kotaui/kotaui-wait-singbox-config || { eerror "sing-box 配置未在等待时间内就绪"; return 1; }
 }
 
 start_post() {

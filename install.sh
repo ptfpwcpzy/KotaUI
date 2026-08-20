@@ -170,10 +170,11 @@ install_program(){
   step '5 / 6' '构建 KotaUI 与用户流量统计核心'
   install -d -m 755 "$PREFIX" "$PREFIX/bin" "$DATA_DIR" "$DATA_DIR/sing-box" /usr/local/lib/kotaui
   install -m 755 "$SOURCE_DIR/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
-  (cd "$SOURCE_DIR" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
+	(cd "$SOURCE_DIR" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
-  install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
-  install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+	install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+	install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+	install -m 755 "$SOURCE_DIR/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
 	KOTAUI_GO_BIN="$GO_BIN" "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"
   cat > "$DATA_DIR/runtime.env" <<EOF
 KOTAUI_DATA_DIR=$DATA_DIR
@@ -201,8 +202,8 @@ install_services(){
   . /etc/os-release 2>/dev/null || true
   if [ "${ID:-}" = alpine ]; then
     install -d -m 755 /etc/init.d /etc/conf.d /etc/periodic/6hourly
-    install -m 755 "$SOURCE_DIR/service/kotaui.openrc" /etc/init.d/kotaui
-    install -m 755 "$SOURCE_DIR/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
+	install -m 755 "$SOURCE_DIR/service/kotaui.openrc" /etc/init.d/kotaui
+	install -m 755 "$SOURCE_DIR/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
     printf 'KOTAUI_RUNTIME_ENV="%s/runtime.env"\n' "$DATA_DIR" > /etc/conf.d/kotaui
     cp "$BIN_DIR/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew; chmod 700 /etc/periodic/6hourly/kota-cert-renew
     rc-update add kotaui default >/dev/null 2>&1 || true; rc-update add kotaui-singbox default >/dev/null 2>&1 || true; rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
@@ -211,7 +212,7 @@ install_services(){
     install -m 644 "$SOURCE_DIR/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
     install -m 644 "$SOURCE_DIR/service/kota-update.service" /etc/systemd/system/kota-update.service
     install -m 644 "$SOURCE_DIR/service/kota-cert-renew.service" /etc/systemd/system/kota-cert-renew.service
-    install -m 644 "$SOURCE_DIR/service/kota-cert-renew.timer" /etc/systemd/system/kota-cert-renew.timer
+	install -m 644 "$SOURCE_DIR/service/kota-cert-renew.timer" /etc/systemd/system/kota-cert-renew.timer
     systemctl daemon-reload; systemctl reset-failed kotaui-singbox >/dev/null 2>&1 || true; systemctl enable --now kotaui; systemctl enable --now kotaui-singbox kota-cert-renew.timer
   fi
 }

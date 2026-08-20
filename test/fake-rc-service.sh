@@ -20,9 +20,9 @@ load_runtime(){
 start(){
   if [ -r "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then return 0; fi
   load_runtime
-  case "$service" in
-    kotaui) nohup /opt/kotaui/kotaui >"$run_dir/kotaui.log" 2>&1 & ;;
-    kotaui-singbox) nohup "${KOTAUI_SINGBOX_BIN:-/usr/bin/sing-box}" run -c "${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}" >"$run_dir/kotaui-singbox.log" 2>&1 & ;;
+	case "$service" in
+	  kotaui) nohup /opt/kotaui/kotaui >"$run_dir/kotaui.log" 2>&1 & ;;
+	  kotaui-singbox) /usr/local/lib/kotaui/kotaui-wait-singbox-config; nohup "${KOTAUI_SINGBOX_BIN:-/usr/bin/sing-box}" run -c "${KOTAUI_SINGBOX_CONFIG:-/var/lib/kotaui/sing-box/config.json}" >"$run_dir/kotaui-singbox.log" 2>&1 & ;;
     *) exit 0 ;;
   esac
   echo $! > "$pid_file"
