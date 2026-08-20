@@ -5,16 +5,20 @@ DATA_DIR="${KOTAUI_DATA_DIR:-/var/lib/kotaui}"
 KOTA_BIN="${KOTAUI_KOTA_BIN:-/usr/local/bin/kota}"
 STATUS_FILE="$DATA_DIR/update.status"
 LOG_FILE="$DATA_DIR/update.log"
+CONTEXT_FILE="$DATA_DIR/update.context"
 
 mkdir -p "$DATA_DIR"
-write_status(){ temporary="$STATUS_FILE.tmp"; printf '%s\n%s\n' "$1" "$2" > "$temporary" && mv -f "$temporary" "$STATUS_FILE"; }
+UPDATE_RUN_ID=""
+if [ -r "$CONTEXT_FILE" ]; then . "$CONTEXT_FILE"; UPDATE_RUN_ID="${KOTAUI_UPDATE_RUN_ID:-}"; fi
+case "$UPDATE_RUN_ID" in ''|*[!0-9]*) UPDATE_RUN_ID="";; esac
+write_status(){ temporary="$STATUS_FILE.tmp.$$"; printf '{"runId":"%s","state":"%s","message":"%s","updatedAt":%s}\n' "$UPDATE_RUN_ID" "$1" "$2" "$(date +%s)" > "$temporary" && mv -f "$temporary" "$STATUS_FILE"; }
 completed=0
 trap 'if [ "$completed" -ne 1 ]; then write_status failed "更新任务异常结束，请查看更新日志后重试。"; fi' EXIT
 write_status running '正在准备独立更新任务…'
 printf '\n[%s] 开始独立更新任务\n' "$(date -Iseconds)" >> "$LOG_FILE"
 
 write_status running '正在下载最新项目源码…'
-if KOTAUI_PANEL_UPDATE=1 "$KOTA_BIN" update --yes >> "$LOG_FILE" 2>&1; then
+if KOTAUI_PANEL_UPDATE=1 KOTAUI_UPDATE_RUN_ID="$UPDATE_RUN_ID" "$KOTA_BIN" update --yes >> "$LOG_FILE" 2>&1; then
 	write_status success '更新完成，面板与核心正在恢复。'
 	completed=1
   printf '[%s] 更新任务完成\n' "$(date -Iseconds)" >> "$LOG_FILE"

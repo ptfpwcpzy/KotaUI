@@ -42,6 +42,7 @@ type App struct {
 	trafficSyncInterval time.Duration
 	updateMu            sync.Mutex
 	updateRunning       bool
+	updateRunID         string
 	updateMessage       string
 	settingsApplyMu     sync.Mutex
 	settingsApplying    bool

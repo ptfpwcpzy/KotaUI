@@ -443,6 +443,44 @@ func TestUpdateStatusReturnsPersistentProgressMessage(t *testing.T) {
 	}
 }
 
+func TestUpdateStatusScopesResultToRequestedRun(t *testing.T) {
+	a := testApp(t)
+	cookie := login(t, a)
+	if err := a.writeUpdateProgressForRun("200", "success", "更新完成，面板与核心已恢复。"); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, a.Handler(), http.MethodGet, "/api/update/status?runId=100", nil, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d %s", w.Code, w.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["state"] != "superseded" || result["running"] != false {
+		t.Fatalf("unexpected scoped result: %#v", result)
+	}
+}
+
+func TestUpdateStatusReturnsStructuredRunMetadata(t *testing.T) {
+	a := testApp(t)
+	cookie := login(t, a)
+	if err := a.writeUpdateProgressForRun("123456789", "running", "正在构建 KotaUI 面板程序…"); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, a.Handler(), http.MethodGet, "/api/update/status?runId=123456789", nil, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d %s", w.Code, w.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["runId"] != "123456789" || result["state"] != "running" || result["updatedAt"] == nil {
+		t.Fatalf("unexpected structured update result: %#v", result)
+	}
+}
+
 func TestPanelRestartAcknowledgesBeforeServiceStop(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)

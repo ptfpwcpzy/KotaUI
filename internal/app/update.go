@@ -1,14 +1,23 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
+
+type updateProgress struct {
+	RunID     string `json:"runId,omitempty"`
+	State     string `json:"state"`
+	Message   string `json:"message,omitempty"`
+	UpdatedAt int64  `json:"updatedAt"`
+}
 
 func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -22,6 +31,7 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "更新任务正在执行，请稍候"})
 		return
 	}
+	runID := strconv.FormatInt(time.Now().UnixNano(), 10)
 	a.updateMu.Lock()
 	if a.updateRunning {
 		a.updateMu.Unlock()
@@ -29,16 +39,22 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.updateRunning = true
+	a.updateRunID = runID
 	a.updateMessage = "正在准备更新…"
 	a.updateMu.Unlock()
 
 	if err := os.MkdirAll(a.runtime.DataDir, 0700); err != nil {
-		a.finishUpdate("failed", "无法创建更新状态目录")
+		a.finishUpdateForRun(runID, "failed", "无法创建更新状态目录")
 		serverError(w, err)
 		return
 	}
-	if err := a.writeUpdateProgress("running", "正在启动独立更新服务…"); err != nil {
-		a.finishUpdate("failed", "无法记录更新状态")
+	if err := a.writeUpdateProgressForRun(runID, "running", "正在启动独立更新服务…"); err != nil {
+		a.finishUpdateForRun(runID, "failed", "无法记录更新状态")
+		serverError(w, err)
+		return
+	}
+	if err := os.WriteFile(filepath.Join(a.runtime.DataDir, "update.context"), []byte("KOTAUI_UPDATE_RUN_ID="+runID+"\n"), 0600); err != nil {
+		a.finishUpdateForRun(runID, "failed", "无法准备更新任务上下文")
 		serverError(w, err)
 		return
 	}
@@ -46,28 +62,29 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 	if systemdAvailable() {
 		_ = exec.Command("systemctl", "reset-failed", "kota-update.service").Run()
 		if output, err := exec.Command("systemctl", "start", "--no-block", "kota-update.service").CombinedOutput(); err != nil {
-			a.finishUpdate("failed", "无法启动独立更新服务")
+			a.finishUpdateForRun(runID, "failed", "无法启动独立更新服务")
 			serverError(w, errors.New("无法启动独立更新服务："+strings.TrimSpace(string(output))))
 			return
 		}
 		a.setUpdateMessage("更新服务已启动，正在等待任务上报阶段进度…")
-		writeJSON(w, http.StatusAccepted, map[string]string{"message": "已启动独立更新任务，完成后会自动重启服务"})
+		writeJSON(w, http.StatusAccepted, map[string]string{"runId": runID, "message": "更新任务已接受，正在后台下载和构建。"})
 		return
 	}
 
 	logFile, err := os.OpenFile(filepath.Join(a.runtime.DataDir, "update.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
-		a.finishUpdate("failed", "无法写入更新日志")
+		a.finishUpdateForRun(runID, "failed", "无法写入更新日志")
 		serverError(w, err)
 		return
 	}
-	_, _ = logFile.WriteString("\n[" + time.Now().Format(time.RFC3339) + "] 面板请求更新\n")
+	_, _ = logFile.WriteString("\n[" + time.Now().Format(time.RFC3339) + "] 面板请求更新 run=" + runID + "\n")
 	cmd := exec.Command("/usr/local/bin/kota", "update", "--yes")
+	cmd.Env = append(os.Environ(), "KOTAUI_PANEL_UPDATE=1", "KOTAUI_UPDATE_RUN_ID="+runID)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
-		a.finishUpdate("failed", "无法启动更新脚本")
+		a.finishUpdateForRun(runID, "failed", "无法启动更新脚本")
 		serverError(w, err)
 		return
 	}
@@ -76,12 +93,12 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		err := cmd.Wait()
 		_ = logFile.Close()
 		if err != nil {
-			a.finishUpdate("failed", "更新失败，请查看更新日志。")
+			a.finishUpdateForRun(runID, "failed", "更新失败，请查看更新日志。")
 			return
 		}
-		a.finishUpdate("success", "更新完成，服务正在恢复。")
+		a.finishUpdateForRun(runID, "success", "更新完成，服务正在恢复。")
 	}()
-	writeJSON(w, http.StatusAccepted, map[string]string{"message": "已开始更新，完成后会自动重启服务"})
+	writeJSON(w, http.StatusAccepted, map[string]string{"runId": runID, "message": "更新任务已接受，正在后台下载和构建。"})
 }
 
 func (a *App) updateStatus(w http.ResponseWriter, r *http.Request) {
@@ -89,90 +106,103 @@ func (a *App) updateStatus(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	state, progress := a.readUpdateProgress()
-	if state == "running" && !a.updateIsRunning() {
-		state = "failed"
-		progress = "更新任务已停止，请查看更新日志后重新尝试。"
-		_ = a.writeUpdateProgress(state, progress)
+	expectedRunID := strings.TrimSpace(r.URL.Query().Get("runId"))
+	progress := a.readUpdateProgressDetail()
+	if expectedRunID != "" && progress.RunID != "" && progress.RunID != expectedRunID {
+		writeJSON(w, http.StatusOK, map[string]any{"running": false, "state": "superseded", "runId": progress.RunID, "message": "本次更新已被新的更新任务替代。"})
+		return
 	}
-	if state == "running" && strings.Contains(progress, "正在启动独立更新服务") && a.updateStateOlderThan(time.Minute) {
-		state = "failed"
-		progress = "更新服务启动后未上报进度，请查看更新日志后重新尝试。"
-		_ = a.writeUpdateProgress(state, progress)
+	if progress.State == "running" && !a.updateIsRunning() {
+		progress.State = "failed"
+		progress.Message = "更新任务已停止，请查看更新日志后重新尝试。"
+		_ = a.writeUpdateProgressForRun(progress.RunID, progress.State, progress.Message)
+	}
+	if progress.State == "running" && strings.Contains(progress.Message, "正在启动独立更新服务") && a.updateStateOlderThan(time.Minute) {
+		progress.State = "failed"
+		progress.Message = "更新服务启动后未上报进度，请查看更新日志后重新尝试。"
+		_ = a.writeUpdateProgressForRun(progress.RunID, progress.State, progress.Message)
 	}
 	a.updateMu.Lock()
-	defer a.updateMu.Unlock()
-	switch state {
+	switch progress.State {
 	case "running":
 		a.updateRunning = true
-		if progress != "" {
-			a.updateMessage = progress
-		} else if a.updateMessage == "" {
-			a.updateMessage = "正在下载、构建并替换面板与核心，请勿关闭页面。"
+		if progress.RunID != "" {
+			a.updateRunID = progress.RunID
 		}
-	case "success":
-		a.updateRunning = false
-		if progress != "" {
-			a.updateMessage = progress
-		} else {
-			a.updateMessage = "更新完成，服务正在恢复。"
+		if progress.Message != "" {
+			a.updateMessage = progress.Message
 		}
-	case "failed":
+	case "success", "failed":
 		a.updateRunning = false
-		if progress != "" {
-			a.updateMessage = progress
-		} else {
-			a.updateMessage = "更新失败，请查看更新日志。"
+		if progress.Message != "" {
+			a.updateMessage = progress.Message
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"running": a.updateRunning, "message": a.updateMessage})
+	running, message, runID := a.updateRunning, a.updateMessage, a.updateRunID
+	a.updateMu.Unlock()
+	if progress.State == "" {
+		progress.State = "idle"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"running": running, "state": progress.State, "runId": firstNonEmpty(progress.RunID, runID), "message": message, "updatedAt": progress.UpdatedAt})
 }
 
-func (a *App) updateStatePath() string {
-	return filepath.Join(a.runtime.DataDir, "update.status")
-}
+func (a *App) updateStatePath() string { return filepath.Join(a.runtime.DataDir, "update.status") }
 
-func (a *App) updateStateStale() bool {
-	return a.updateStateOlderThan(15 * time.Second)
-}
+func (a *App) updateStateStale() bool { return a.updateStateOlderThan(15 * time.Second) }
 
 func (a *App) updateStateOlderThan(age time.Duration) bool {
 	info, err := os.Stat(a.updateStatePath())
 	return err == nil && time.Since(info.ModTime()) > age
 }
 
-func (a *App) writeUpdateState(state string) error {
-	return a.writeUpdateProgress(state, "")
-}
+func (a *App) writeUpdateState(state string) error { return a.writeUpdateProgress(state, "") }
 
-func (a *App) readUpdateState() string {
-	state, _ := a.readUpdateProgress()
-	return state
-}
+func (a *App) readUpdateState() string { return a.readUpdateProgressDetail().State }
 
 func (a *App) writeUpdateProgress(state, message string) error {
+	a.updateMu.Lock()
+	runID := a.updateRunID
+	a.updateMu.Unlock()
+	return a.writeUpdateProgressForRun(runID, state, message)
+}
+
+func (a *App) writeUpdateProgressForRun(runID, state, message string) error {
+	progress := updateProgress{RunID: strings.TrimSpace(runID), State: strings.TrimSpace(state), Message: strings.TrimSpace(message), UpdatedAt: time.Now().Unix()}
+	body, err := json.Marshal(progress)
+	if err != nil {
+		return err
+	}
 	path := a.updateStatePath()
-	body := strings.TrimSpace(state) + "\n" + strings.TrimSpace(message) + "\n"
 	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, []byte(body), 0600); err != nil {
+	if err := os.WriteFile(temporary, append(body, '\n'), 0600); err != nil {
 		return err
 	}
 	return os.Rename(temporary, path)
 }
 
 func (a *App) readUpdateProgress() (string, string) {
+	progress := a.readUpdateProgressDetail()
+	return progress.State, progress.Message
+}
+
+func (a *App) readUpdateProgressDetail() updateProgress {
 	body, err := os.ReadFile(a.updateStatePath())
 	if err != nil {
-		return "", ""
+		return updateProgress{}
+	}
+	var progress updateProgress
+	if json.Unmarshal(body, &progress) == nil && progress.State != "" {
+		return progress
 	}
 	parts := strings.SplitN(strings.TrimSpace(string(body)), "\n", 2)
 	if len(parts) == 0 {
-		return "", ""
+		return updateProgress{}
 	}
-	if len(parts) == 1 {
-		return strings.TrimSpace(parts[0]), ""
+	progress.State = strings.TrimSpace(parts[0])
+	if len(parts) == 2 {
+		progress.Message = strings.TrimSpace(parts[1])
 	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	return progress
 }
 
 func (a *App) setUpdateMessage(message string) {
@@ -182,9 +212,19 @@ func (a *App) setUpdateMessage(message string) {
 }
 
 func (a *App) finishUpdate(state, message string) {
-	_ = a.writeUpdateProgress(state, message)
+	a.updateMu.Lock()
+	runID := a.updateRunID
+	a.updateMu.Unlock()
+	a.finishUpdateForRun(runID, state, message)
+}
+
+func (a *App) finishUpdateForRun(runID, state, message string) {
+	_ = a.writeUpdateProgressForRun(runID, state, message)
 	a.updateMu.Lock()
 	a.updateRunning = false
+	if runID != "" {
+		a.updateRunID = runID
+	}
 	a.updateMessage = message
 	a.updateMu.Unlock()
 }
@@ -193,7 +233,7 @@ func (a *App) updateIsRunning() bool {
 	a.updateMu.Lock()
 	inMemory := a.updateRunning
 	a.updateMu.Unlock()
-	state, _ := a.readUpdateProgress()
+	state := a.readUpdateState()
 	if state != "running" {
 		return inMemory
 	}
@@ -214,4 +254,13 @@ func updateServiceActive() bool {
 	default:
 		return false
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
