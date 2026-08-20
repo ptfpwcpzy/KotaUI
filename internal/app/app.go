@@ -49,6 +49,8 @@ type App struct {
 	updateMessage       string
 	settingsApplyMu     sync.Mutex
 	settingsApplying    bool
+	certificateRenewMu  sync.Mutex
+	certificateRenewing bool
 	startedAt           time.Time
 	sniProbe            sniProbeFunc
 }
@@ -465,6 +467,9 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 				}
 				client.SubscriptionSuffix = suffix
 			}
+			if err := validateUniqueSubscriptionID(s.Clients, client, ""); err != nil {
+				return err
+			}
 			s.Clients = append(s.Clients, client)
 			return nil
 		})
@@ -491,6 +496,8 @@ type clientExpiryRequest struct {
 
 func newClientCredentials(protocol string) (credential, tuicPassword string) {
 	switch protocol {
+	case "reality":
+		return config.RandomUUID(), ""
 	case "shadowsocks2022":
 		return config.RandomBase64(32), ""
 	case "tuic":
@@ -629,6 +636,9 @@ func (a *App) updateClient(id string, request clientExpiryRequest) error {
 		target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
 		target.ExpiresAt = incoming.ExpiresAt
 		target.MaxOnlineIPs = incoming.MaxOnlineIPs
+		if err := validateUniqueSubscriptionID(s.Clients, *target, id); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -958,6 +968,19 @@ func clientSubscriptionID(client config.Client) string {
 	return client.Username + client.SubscriptionSuffix
 }
 
+func validateUniqueSubscriptionID(clients []config.Client, candidate config.Client, excludeID string) error {
+	identifier := clientSubscriptionID(candidate)
+	if identifier == "" {
+		return errors.New("订阅标识不能为空")
+	}
+	for _, client := range clients {
+		if client.ID != excludeID && clientSubscriptionID(client) == identifier {
+			return errors.New("订阅地址与已有客户端冲突，请修改用户名后重试")
+		}
+	}
+	return nil
+}
+
 func uniqueSubscriptionSuffix(clients []config.Client, username string) (string, error) {
 	for range 32 {
 		suffix := config.RandomLetters(5)
@@ -1137,6 +1160,9 @@ func normalizeProtocolSecrets(s *store.Store, singBoxBin string) error {
 				state.Clients[i].TUICPasswords = map[string]string{}
 			}
 			for id := range state.Clients[i].Credentials {
+				if types[id] == "reality" && !config.ValidUUID(state.Clients[i].Credentials[id]) {
+					state.Clients[i].Credentials[id] = config.RandomUUID()
+				}
 				if types[id] == "shadowsocks2022" && !validSS2022Key(state.Clients[i].Credentials[id]) {
 					state.Clients[i].Credentials[id] = config.RandomBase64(32)
 				}

@@ -6,12 +6,13 @@ VERSION=${KOTAUI_SINGBOX_VERSION:-v1.13.18}
 SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git}
 # 集中维护运行协议与用户流量统计所需的 sing-box 编译能力；新增可选协议时只需在此补充对应标签。
 BUILD_TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic}
+GO_BIN=${KOTAUI_GO_BIN:-go}
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' '构建兼容 sing-box 核心需要 root 权限。' >&2; exit 1; }
 command -v git >/dev/null 2>&1 || { printf '%s\n' '未找到 git，无法构建兼容 sing-box 核心。' >&2; exit 1; }
-command -v go >/dev/null 2>&1 || { printf '%s\n' '未找到 Go，无法构建兼容 sing-box 核心。' >&2; exit 1; }
+command -v "$GO_BIN" >/dev/null 2>&1 || { printf '%s\n' '未找到 Go，无法构建兼容 sing-box 核心。' >&2; exit 1; }
 
 install -d -m 755 "$(dirname "$DESTINATION")"
 CANDIDATE="$WORKDIR/sing-box"
@@ -21,7 +22,7 @@ if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
 else
   printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
   git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
-  (cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 go build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$CANDIDATE" ./cmd/sing-box)
+	(cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 "$GO_BIN" build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$CANDIDATE" ./cmd/sing-box)
 fi
 
 CHECK_CONFIG="$WORKDIR/check.json"

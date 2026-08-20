@@ -4,6 +4,7 @@ set -eu
 DATA_DIR=${KOTAUI_DATA_DIR:-/var/lib/kotaui}
 PREFIX=${KOTAUI_PREFIX:-/opt/kotaui}
 BIN_DIR=${KOTAUI_BIN_DIR:-/usr/local/bin}
+GO_BIN=${KOTAUI_GO_BIN:-go}
 RUNTIME_ENV="$DATA_DIR/runtime.env"
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'kota 必须以 root 身份运行。' >&2; exit 1; }
 [ -r "$RUNTIME_ENV" ] || { printf '%s\n' '未发现 KotaUI 运行配置。' >&2; exit 1; }
@@ -16,6 +17,19 @@ manager(){ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
 svc(){ if [ "$(manager)" = systemd ]; then systemctl "$2" "$1"; else rc-service "$1" "$2"; fi; }
 running(){ if [ "$(manager)" = systemd ]; then systemctl is-active --quiet "$1"; else rc-service "$1" status >/dev/null 2>&1; fi; }
 update_status(){ [ "${KOTAUI_PANEL_UPDATE:-}" = 1 ] || return 0; install -d -m 700 "$DATA_DIR"; update_run_id="${KOTAUI_UPDATE_RUN_ID:-}"; case "$update_run_id" in ''|*[!0-9]*) update_run_id="";; esac; temporary="$DATA_DIR/update.status.tmp.$$"; printf '{"runId":"%s","state":"%s","message":"%s","updatedAt":%s}\n' "$update_run_id" "$1" "$2" "$(date +%s)" > "$temporary" && mv -f "$temporary" "$DATA_DIR/update.status"; }
+go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p'); [ -n "$minor" ] && [ "$minor" -ge 22 ]; }
+ensure_go_toolchain(){
+  if command -v "$GO_BIN" >/dev/null 2>&1 && go_meets_requirement "$GO_BIN"; then return 0; fi
+  if [ -x "$PREFIX/go/bin/go" ] && go_meets_requirement "$PREFIX/go/bin/go"; then GO_BIN="$PREFIX/go/bin/go"; return 0; fi
+  case "$(uname -m)" in x86_64|amd64) arch=amd64; sha=4fa4f869b0f7fc6bb1eb2660e74657fbf04cdd290b5aef905585c86051b34d43;; aarch64|arm64) arch=arm64; sha=fd017e647ec28525e86ae8203236e0653242722a7436929b1f775744e26278e7;; *) return 1;; esac
+  update_status running '系统 Go 版本不足，正在准备兼容工具链…'
+  archive=$(mktemp) || return 1
+  if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.22.12.linux-${arch}.tar.gz" -o "$archive" || ! printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; return 1; fi
+  rm -rf "$PREFIX/go"
+  if ! tar -C "$PREFIX" -xzf "$archive"; then rm -f "$archive"; return 1; fi
+  rm -f "$archive"; GO_BIN="$PREFIX/go/bin/go"
+  go_meets_requirement "$GO_BIN"
+}
 
 status(){
   clear_screen
@@ -79,10 +93,11 @@ update(){
   update_status running '正在下载最新项目源码…'
   source=$(mktemp -d)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; update_status failed '下载更新失败，请检查网络或更新日志。'; printf '下载更新失败。\n' >&2; return 1; fi
+	if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在构建兼容 sing-box 核心…'
-  if ! sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
+	if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在构建 KotaUI 面板程序…'
-  if ! (cd "$source" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
+	if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在原子替换程序与维护脚本…'
   install -m 755 "$source/kotaui" "$PREFIX/kotaui.new"
   install -m 755 "$source/sing-box-v2ray" "$PREFIX/sing-box-v2ray.new"
@@ -94,6 +109,7 @@ update(){
   install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
   install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
   sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
+	if grep -q '^KOTAUI_GO_BIN=' "$RUNTIME_ENV"; then sed -i "s|^KOTAUI_GO_BIN=.*|KOTAUI_GO_BIN=$GO_BIN|" "$RUNTIME_ENV"; else printf 'KOTAUI_GO_BIN=%s\n' "$GO_BIN" >> "$RUNTIME_ENV"; fi
   update_status running '正在重启面板与 sing-box 核心…'
   if [ "$(manager)" = systemd ]; then
     install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service

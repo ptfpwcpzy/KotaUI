@@ -13,6 +13,9 @@ CERT_TYPE=${KOTAUI_CERT_TYPE:-}
 CERT_SUBJECT=${KOTAUI_CERT_SUBJECT:-}
 CERT_EMAIL=${KOTAUI_CERT_EMAIL:-}
 CERTBOT_BIN=${KOTAUI_CERTBOT_BIN:-certbot}
+GO_BIN=${KOTAUI_GO_BIN:-}
+GO_VERSION=${KOTAUI_GO_VERSION:-go1.22.12}
+GO_TOOLCHAIN_DIR=${KOTAUI_GO_TOOLCHAIN_DIR:-$PREFIX/go}
 
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' '请使用 root 身份运行安装器。' >&2; exit 1; }
 
@@ -48,6 +51,35 @@ EOF
 
 validate_port(){ case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]; }
 validate_path(){ case "$1" in ''|*[!A-Za-z0-9_-]*) return 1;; esac; [ "${#1}" -le 48 ]; }
+
+go_meets_requirement(){
+	output=$("$1" version 2>/dev/null || true)
+	minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p')
+	[ -n "$minor" ] && [ "$minor" -ge 22 ]
+}
+
+prepare_go_toolchain(){
+	if [ -n "$GO_BIN" ] && command -v "$GO_BIN" >/dev/null 2>&1 && go_meets_requirement "$GO_BIN"; then return 0; fi
+	if command -v go >/dev/null 2>&1 && go_meets_requirement go; then GO_BIN=$(command -v go); return 0; fi
+	case "$(uname -m)" in
+		x86_64|amd64) GO_ARCH=amd64; GO_SHA256=4fa4f869b0f7fc6bb1eb2660e74657fbf04cdd290b5aef905585c86051b34d43;;
+		aarch64|arm64) GO_ARCH=arm64; GO_SHA256=fd017e647ec28525e86ae8203236e0653242722a7436929b1f775744e26278e7;;
+		*) fail "当前 CPU 架构 $(uname -m) 未提供受控 Go 工具链。";;
+	esac
+	command -v sha256sum >/dev/null 2>&1 || fail '未找到 sha256sum，无法校验 Go 工具链。'
+	step '4 / 6' "系统 Go 版本不足，正在准备受控 ${GO_VERSION} 工具链"
+	archive=$(mktemp)
+	if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o "$archive"; then rm -f "$archive"; fail '下载 Go 工具链失败。'; fi
+	if ! printf '%s  %s\n' "$GO_SHA256" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; fail 'Go 工具链校验失败。'; fi
+	parent=$(dirname "$GO_TOOLCHAIN_DIR")
+	install -d -m 755 "$parent"
+	rm -rf "$GO_TOOLCHAIN_DIR" "$parent/go"
+	if ! tar -C "$parent" -xzf "$archive"; then rm -f "$archive"; fail '解压 Go 工具链失败。'; fi
+	rm -f "$archive"
+	if [ "$GO_TOOLCHAIN_DIR" != "$parent/go" ]; then mv "$parent/go" "$GO_TOOLCHAIN_DIR"; fi
+	GO_BIN="$GO_TOOLCHAIN_DIR/bin/go"
+	go_meets_requirement "$GO_BIN" || fail 'Go 工具链版本不符合项目要求。'
+}
 
 choose_certificate(){
   step '1 / 6' '选择证书类型'
@@ -142,7 +174,7 @@ install_program(){
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
   install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
   install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
-  "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"
+	KOTAUI_GO_BIN="$GO_BIN" "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"
   cat > "$DATA_DIR/runtime.env" <<EOF
 KOTAUI_DATA_DIR=$DATA_DIR
 KOTAUI_LISTEN=0.0.0.0:$PANEL_PORT
@@ -155,8 +187,9 @@ KOTAUI_TLS_CERT=$DATA_DIR/certs/fullchain.pem
 KOTAUI_TLS_KEY=$DATA_DIR/certs/privkey.pem
 KOTAUI_ADMIN_USER=$ADMIN_USER
 KOTAUI_ADMIN_PASSWORD=$ADMIN_PASSWORD
-KOTAUI_CERTBOT_BIN=$CERTBOT_BIN
-KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray
+	KOTAUI_CERTBOT_BIN=$CERTBOT_BIN
+	KOTAUI_GO_BIN=$GO_BIN
+	KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray
 KOTAUI_SINGBOX_CONFIG=$DATA_DIR/sing-box/config.json
 KOTAUI_MANAGE_SINGBOX=1
 KOTAUI_STATS_PORT=9090
@@ -206,6 +239,7 @@ choose_certificate
 choose_panel
 choose_admin
 install_packages
+prepare_go_toolchain
 prepare_ip_certbot
 install_program
 acquire_certificate

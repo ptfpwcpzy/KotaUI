@@ -1,8 +1,9 @@
 #!/bin/sh
 set -eu
 
-ROOTFS=/tmp/kotaui-go-alpine
+ROOTFS=${KOTAUI_ALPINE_ROOTFS:-/tmp/kotaui-go-alpine}
 SOURCE=${KOTAUI_SOURCE:-$(CDPATH= cd "$(dirname "$0")/.." && pwd)}
+export ROOTFS
 CERT_TYPE=${SIM_CERT_TYPE:-domain}
 CERT_SUBJECT=${SIM_CERT_SUBJECT:-panel.example.test}
 PROMPT_CERT=${SIM_PROMPT_CERT:-}
@@ -12,6 +13,7 @@ export CERT_TYPE CERT_SUBJECT PROMPT_CERT EXPECTED_CERT_TYPE
 
 rm -rf "$ROOTFS/opt/kotaui-source" "$ROOTFS/opt/kotaui" "$ROOTFS/var/lib/kotaui" "$ROOTFS/run/kotaui-sim"
 mkdir -p "$ROOTFS/opt/kotaui-source" "$ROOTFS/usr/local/bin"
+cp -L /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
 (cd "$SOURCE" && tar --exclude=.git --exclude=bin -cf - .) | tar -C "$ROOTFS/opt/kotaui-source" -xf -
 install -m 755 "$SOURCE/test/fake-rc-service.sh" "$ROOTFS/usr/local/bin/rc-service"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$ROOTFS/usr/local/bin/rc-update"
@@ -21,9 +23,9 @@ chmod 755 "$ROOTFS/usr/local/bin/rc-update" "$ROOTFS/usr/local/bin/certbot" "$RO
 
 unshare --user --map-root-user --mount --pid --fork --mount-proc /bin/sh -c '
   set -eu
-  mount --bind /tmp/kotaui-go-alpine /tmp/kotaui-go-alpine
-  mount -t proc proc /tmp/kotaui-go-alpine/proc
-  chroot /tmp/kotaui-go-alpine /bin/sh -c "
+  mount --bind "$ROOTFS" "$ROOTFS"
+  mount -t proc proc "$ROOTFS/proc"
+  chroot "$ROOTFS" /bin/sh -c "
     set -eu
     export PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
     export KOTAUI_SOURCE_DIR=/opt/kotaui-source

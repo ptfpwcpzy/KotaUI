@@ -163,6 +163,49 @@ func TestTUICInboundCreatesRandomClientCredentials(t *testing.T) {
 	}
 }
 
+func TestRealityClientUsesUUIDCredentials(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	inbound := map[string]any{"name": "reality", "type": "reality", "port": 24443, "handshakeServer": "www.cloudflare.com", "sni": "www.cloudflare.com", "privateKey": testRealityPrivateKey, "publicKey": testRealityPublicKey, "shortId": "1234abcd"}
+	w := request(t, h, http.MethodPost, "/api/inbounds", inbound, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create reality inbound: %d %s", w.Code, w.Body.String())
+	}
+	var created config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": "reality-user", "inboundIds": []string{created.ID}}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create reality client: %d %s", w.Code, w.Body.String())
+	}
+	client := a.store.Snapshot().Clients[0]
+	if !config.ValidUUID(client.Credentials[created.ID]) {
+		t.Fatalf("REALITY credential must be UUID, got %q", client.Credentials[created.ID])
+	}
+	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(client), nil, nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "vless://"+client.Credentials[created.ID]+"@") {
+		t.Fatalf("REALITY subscription: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRejectsSubscriptionIDCollision(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "hy2", "type": "hysteria2", "port": 24443, "sni": "example.test", "upMbps": 50, "downMbps": 200}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create inbound: %d %s", w.Code, w.Body.String())
+	}
+	var inbound config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &inbound)
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": "alice", "inboundIds": []string{inbound.ID}}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create first client: %d %s", w.Code, w.Body.String())
+	}
+	first := a.store.Snapshot().Clients[0]
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": clientSubscriptionID(first), "randomSubscriptionSuffix": false, "inboundIds": []string{inbound.ID}}, cookie)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "订阅地址与已有客户端冲突") {
+		t.Fatalf("subscription collision should be rejected: %d %s", w.Code, w.Body.String())
+	}
+}
 func TestNormalizeRealityCandidates(t *testing.T) {
 	candidates, err := normalizeRealityCandidates([]config.RealityCandidate{
 		{Host: "WWW.Cloudflare.COM.", Port: 8443},
@@ -664,6 +707,23 @@ func TestNormalizeProtocolSecretsRepairsLegacyShadowsocksKey(t *testing.T) {
 	state := a.store.Snapshot()
 	if !validSS2022Key(state.Inbounds[0].ServerPassword) || !validSS2022Key(state.Clients[0].Credentials["legacy-ss"]) {
 		t.Fatalf("legacy SS2022 keys were not repaired: %#v", state)
+	}
+}
+
+func TestNormalizeProtocolSecretsRepairsLegacyRealityCredential(t *testing.T) {
+	a := testApp(t)
+	if err := a.store.Update(func(state *config.State) error {
+		state.Inbounds = append(state.Inbounds, config.Inbound{ID: "legacy-reality", Name: "legacy reality", Type: "reality", PrivateKey: testRealityPrivateKey, PublicKey: testRealityPublicKey})
+		state.Clients = append(state.Clients, config.Client{ID: "client", Credentials: map[string]string{"legacy-reality": "0123456789abcdef0123456789abcdef"}})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeProtocolSecrets(a.store, a.runtime.SingBoxBin); err != nil {
+		t.Fatal(err)
+	}
+	if credential := a.store.Snapshot().Clients[0].Credentials["legacy-reality"]; !config.ValidUUID(credential) {
+		t.Fatalf("legacy REALITY credential was not repaired: %q", credential)
 	}
 }
 

@@ -17,21 +17,40 @@ func (a *App) renewCertificate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "面板更新正在执行，请等待更新完成后再检查证书"})
 		return
 	}
-	if state, _ := a.readCertificateRenewProgress(); state == "running" {
+	a.certificateRenewMu.Lock()
+	if a.certificateRenewing {
+		a.certificateRenewMu.Unlock()
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "证书续签检查正在执行，请稍候"})
 		return
 	}
+	if state, _ := a.readCertificateRenewProgress(); state == "running" && !a.certificateRenewStateOlderThan(15*time.Minute) {
+		a.certificateRenewMu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "证书续签检查正在执行，请稍候"})
+		return
+	}
+	a.certificateRenewing = true
+	a.certificateRenewMu.Unlock()
+	finish := func(state, message string) {
+		_ = a.writeCertificateRenewProgress(state, message)
+		a.certificateRenewMu.Lock()
+		a.certificateRenewing = false
+		a.certificateRenewMu.Unlock()
+	}
 	if err := os.MkdirAll(a.runtime.DataDir, 0700); err != nil {
+		finish("failed", "无法创建证书续签状态目录。")
 		serverError(w, err)
 		return
 	}
 	if err := a.writeCertificateRenewProgress("running", "正在检查证书续签条件…"); err != nil {
+		a.certificateRenewMu.Lock()
+		a.certificateRenewing = false
+		a.certificateRenewMu.Unlock()
 		serverError(w, err)
 		return
 	}
 	logFile, err := os.OpenFile(filepath.Join(a.runtime.DataDir, "cert-renew.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
-		_ = a.writeCertificateRenewProgress("failed", "无法写入证书续签日志。")
+		finish("failed", "无法写入证书续签日志。")
 		serverError(w, err)
 		return
 	}
@@ -41,7 +60,7 @@ func (a *App) renewCertificate(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
-		_ = a.writeCertificateRenewProgress("failed", "无法启动证书续签检查。")
+		finish("failed", "无法启动证书续签检查。")
 		serverError(w, err)
 		return
 	}
@@ -49,10 +68,10 @@ func (a *App) renewCertificate(w http.ResponseWriter, r *http.Request) {
 		err := cmd.Wait()
 		_ = logFile.Close()
 		if err != nil {
-			_ = a.writeCertificateRenewProgress("failed", "证书续签检查失败，请查看续签日志。")
+			finish("failed", "证书续签检查失败，请查看续签日志。")
 			return
 		}
-		_ = a.writeCertificateRenewProgress("success", "证书续签检查完成；若证书已更新，面板与核心已自动重载。")
+		finish("success", "证书续签检查完成；若证书已更新，面板与核心已自动重载。")
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"message": "已开始检查证书续签条件，完成后会显示结果"})
 }
