@@ -667,6 +667,60 @@ func TestNormalizeProtocolSecretsRepairsLegacyShadowsocksKey(t *testing.T) {
 	}
 }
 
+func TestResolveClientExpiry(t *testing.T) {
+	now := time.Date(2028, time.January, 31, 15, 0, 0, 0, time.FixedZone("test", 8*3600))
+	for _, test := range []struct {
+		name    string
+		current string
+		legacy  string
+		unit    string
+		amount  int
+		want    string
+		wantErr bool
+	}{
+		{name: "legacy date", legacy: "2030-01-02", want: "2030-01-02"},
+		{name: "unlimited", current: "2030-01-02", unit: "none", want: ""},
+		{name: "keep", current: "2030-01-02", unit: "keep", want: "2030-01-02"},
+		{name: "days", unit: "day", amount: 1, want: "2028-02-01"},
+		{name: "months clamp month end", unit: "month", amount: 1, want: "2028-02-29"},
+		{name: "years", unit: "year", amount: 1, want: "2029-01-31"},
+		{name: "invalid amount", unit: "day", amount: 0, wantErr: true},
+		{name: "invalid unit", unit: "week", amount: 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := resolveClientExpiry(test.current, test.legacy, test.unit, test.amount, now)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("expected expiry error")
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("expiry = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestClientCreateAcceptsDurationExpiry(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "expiry-hy2", "type": "hysteria2", "port": 24443, "sni": "example.test"}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create inbound: %d %s", w.Code, w.Body.String())
+	}
+	var inbound config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &inbound)
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": "expiry-user", "inboundIds": []string{inbound.ID}, "expiryUnit": "day", "expiryAmount": 1}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create duration client: %d %s", w.Code, w.Body.String())
+	}
+	want := time.Now().In(time.Local).AddDate(0, 0, 1).Format("2006-01-02")
+	if got := a.store.Snapshot().Clients[0].ExpiresAt; got != want {
+		t.Fatalf("duration expiry = %q, want %q", got, want)
+	}
+}
+
 func TestInboundMutationUsesOpenRCServiceRestart(t *testing.T) {
 	previous := systemdAvailable
 	systemdAvailable = func() bool { return false }

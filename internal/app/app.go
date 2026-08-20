@@ -110,6 +110,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-subscription.js", embeddedAsset("web/client-subscription.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/assets/client-expiry.css", embeddedAsset("web/client-expiry.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.css", embeddedAsset("web/tuic.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.js", embeddedAsset("web/tuic.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
@@ -421,6 +422,12 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		}
 		client := request.Client
 		client.SubscriptionSuffix = ""
+		var err error
+		client.ExpiresAt, err = resolveClientExpiry("", client.ExpiresAt, request.ExpiryUnit, request.ExpiryAmount, time.Now())
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
 		if err := validateClientInput(client); err != nil {
 			badRequest(w, err)
 			return
@@ -430,7 +437,7 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		client.Month = time.Now().Format("2006-01")
 		client.Credentials = map[string]string{}
 		client.TUICPasswords = map[string]string{}
-		err := a.mutate(func(s *config.State) error {
+		err = a.mutate(func(s *config.State) error {
 			for _, existing := range s.Clients {
 				if existing.Username == client.Username {
 					return errors.New("用户名已存在")
@@ -472,8 +479,14 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 }
 
 type clientCreateRequest struct {
-	config.Client
+	clientExpiryRequest
 	RandomSubscriptionSuffix *bool `json:"randomSubscriptionSuffix"`
+}
+
+type clientExpiryRequest struct {
+	config.Client
+	ExpiryUnit   string `json:"expiryUnit"`
+	ExpiryAmount int    `json:"expiryAmount"`
 }
 
 func newClientCredentials(protocol string) (credential, tuicPassword string) {
@@ -490,12 +503,12 @@ func newClientCredentials(protocol string) (credential, tuicPassword string) {
 func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients/"), "/")
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPatch {
-		var incoming config.Client
-		if err := decodeJSON(r, &incoming); err != nil {
+		var request clientExpiryRequest
+		if err := decodeJSON(r, &request); err != nil {
 			badRequest(w, err)
 			return
 		}
-		if err := a.updateClient(parts[0], incoming); err != nil {
+		if err := a.updateClient(parts[0], request); err != nil {
 			badRequest(w, err)
 			return
 		}
@@ -559,10 +572,7 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (a *App) updateClient(id string, incoming config.Client) error {
-	if err := validateClientInput(incoming); err != nil {
-		return err
-	}
+func (a *App) updateClient(id string, request clientExpiryRequest) error {
 	return a.mutate(func(s *config.State) error {
 		var target *config.Client
 		for i := range s.Clients {
@@ -573,6 +583,15 @@ func (a *App) updateClient(id string, incoming config.Client) error {
 		}
 		if target == nil {
 			return errors.New("客户端不存在")
+		}
+		incoming := request.Client
+		var err error
+		incoming.ExpiresAt, err = resolveClientExpiry(target.ExpiresAt, incoming.ExpiresAt, request.ExpiryUnit, request.ExpiryAmount, time.Now())
+		if err != nil {
+			return err
+		}
+		if err := validateClientInput(incoming); err != nil {
+			return err
 		}
 		for _, other := range s.Clients {
 			if other.ID != id && other.Username == incoming.Username {
@@ -612,6 +631,45 @@ func (a *App) updateClient(id string, incoming config.Client) error {
 		target.MaxOnlineIPs = incoming.MaxOnlineIPs
 		return nil
 	})
+}
+
+func resolveClientExpiry(current, legacyDate, unit string, amount int, now time.Time) (string, error) {
+	if unit == "" {
+		return legacyDate, nil
+	}
+	if unit == "keep" {
+		return current, nil
+	}
+	if unit == "none" {
+		return "", nil
+	}
+	if amount < 1 || amount > 9999 {
+		return "", errors.New("有效期数量必须在 1–9999 之间")
+	}
+	localNow := now.In(time.Local)
+	base := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+	switch unit {
+	case "day":
+		return base.AddDate(0, 0, amount).Format("2006-01-02"), nil
+	case "month":
+		return addCalendarMonths(base, amount).Format("2006-01-02"), nil
+	case "year":
+		return addCalendarMonths(base, amount*12).Format("2006-01-02"), nil
+	default:
+		return "", errors.New("有效期单位无效")
+	}
+}
+
+func addCalendarMonths(base time.Time, months int) time.Time {
+	monthIndex := int(base.Month()) - 1 + months
+	year := base.Year() + monthIndex/12
+	month := time.Month(monthIndex%12 + 1)
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, base.Location()).Day()
+	day := base.Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(year, month, day, 0, 0, 0, 0, base.Location())
 }
 
 func (a *App) settings(w http.ResponseWriter, r *http.Request) {

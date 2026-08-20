@@ -1,4 +1,4 @@
-/* Design reminder: client creation stays concise; a checked-by-default random subscription suffix prevents username-only URL guessing. */
+/* Design reminder: client creation remains concise; subscription paths are randomized by default and expiry uses an explicit duration picker rather than a date calendar. */
 (() => {
   function subscriptionID(client) {
     return `${client.username || ''}${client.subscriptionSuffix || ''}`;
@@ -6,6 +6,12 @@
 
   function subscriptionLink(client) {
     return `${window.dash.subscriptionBaseURL || ''}/${encodeURIComponent(subscriptionID(client))}`;
+  }
+
+  function expiryPicker(existing) {
+    const current = existing?.expiresAt ? `<div class="expiry-current"><span>当前到期日</span><b>${window.esc(existing.expiresAt)}</b><label><input type="radio" name="expiryUnit" value="keep" checked> 保留</label></div>` : '';
+    const unit = existing?.expiresAt ? 'keep' : 'none';
+    return `<div class="expiry-picker"><div class="expiry-heading"><b>有效期</b><small>按创建或保存日期计算；到期当天仍可使用</small></div>${current}<div class="expiry-options"><label class="expiry-unlimited"><input type="radio" name="expiryUnit" value="none" ${unit === 'none' ? 'checked' : ''}>不限</label><label class="expiry-option"><input type="number" name="expiryYear" min="1" max="9999" value="1" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true"><span><input type="radio" name="expiryUnit" value="year">年</span></label><label class="expiry-option"><input type="number" name="expiryMonth" min="1" max="9999" value="1" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true"><span><input type="radio" name="expiryUnit" value="month">月</span></label><label class="expiry-option"><input type="number" name="expiryDay" min="1" max="9999" value="1" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true"><span><input type="radio" name="expiryUnit" value="day">日</span></label></div></div>`;
   }
 
   window.clientModal = function clientModal(existing) {
@@ -16,7 +22,7 @@
       return;
     }
     const randomOption = existing ? '' : `<div class="access-toggle"><div><b>随机订阅标识</b><small>默认启用：在订阅地址末尾加入 5 位随机字母，避免仅凭用户名猜测地址。</small></div><label class="switch" title="随机订阅标识"><input type="checkbox" name="randomSubscriptionSuffix" checked><span></span></label></div>`;
-    window.openModal(`<h2>${existing ? '编辑客户端' : '新增客户端'}</h2><p class="sub">${existing ? '修改入站、流量、期限与在线限制；订阅标识将保持不变。' : '创建后会立即显示订阅地址与使用信息。'}</p><form id="clientForm" class="fields"><label>用户名<input name="username" required pattern="[A-Za-z0-9_-]{3,32}" value="${window.esc(existing?.username || '')}" placeholder="3–32 位字母、数字、下划线或连字符"></label><label class="full">绑定入站<div class="badges" style="margin-top:7px">${enabled.map((inbound) => `<label class="badge"><input type="checkbox" name="inbound" value="${inbound.id}" ${!existing || existing.inboundIds.includes(inbound.id) ? 'checked' : ''} style="width:auto;margin:0 5px 0 0"> ${window.esc(inbound.name)} · ${window.esc(window.protocolName(inbound.type))}</label>`).join('')}</div></label>${randomOption}<label>总流量上限（GiB，0 为不限）<input name="total" type="number" min="0" value="${existing ? ((existing.totalLimitBytes || 0) / 1073741824) : 0}"></label><label>自然月流量（GiB，0 为不限）<input name="monthly" type="number" min="0" value="${existing ? ((existing.monthlyLimitBytes || 0) / 1073741824) : 0}"></label><label>有效期 <span class="sub">留空不限</span><input name="expiresAt" type="date" value="${window.esc(existing?.expiresAt || '')}"></label><label>同时在线 IP 数 <span class="sub">0 为不限</span><input name="maxOnlineIps" type="number" min="0" value="${existing?.maxOnlineIps || 0}"></label></form><div class="dialog-actions"><button class="alt" onclick="closeModal()">取消</button><button class="primary" onclick="document.querySelector('#clientForm').requestSubmit()">${existing ? '保存修改' : '创建客户端'}</button></div>`);
+    window.openModal(`<h2>${existing ? '编辑客户端' : '新增客户端'}</h2><p class="sub">${existing ? '修改入站、流量、期限与在线限制；订阅标识将保持不变。' : '创建后会立即显示订阅地址与使用信息。'}</p><form id="clientForm" class="fields"><label>用户名<input name="username" required pattern="[A-Za-z0-9_-]{3,32}" value="${window.esc(existing?.username || '')}" placeholder="3–32 位字母、数字、下划线或连字符"></label><label class="full">绑定入站<div class="badges" style="margin-top:7px">${enabled.map((inbound) => `<label class="badge"><input type="checkbox" name="inbound" value="${inbound.id}" ${!existing || existing.inboundIds.includes(inbound.id) ? 'checked' : ''} style="width:auto;margin:0 5px 0 0"> ${window.esc(inbound.name)} · ${window.esc(window.protocolName(inbound.type))}</label>`).join('')}</div></label>${randomOption}<label>总流量上限（GiB，0 为不限）<input name="total" type="number" min="0" value="${existing ? ((existing.totalLimitBytes || 0) / 1073741824) : 0}"></label><label>自然月流量（GiB，0 为不限）<input name="monthly" type="number" min="0" value="${existing ? ((existing.monthlyLimitBytes || 0) / 1073741824) : 0}"></label>${expiryPicker(existing)}<label>同时在线 IP 数 <span class="sub">0 为不限</span><input name="maxOnlineIps" type="number" min="0" value="${existing?.maxOnlineIps || 0}"></label></form><div class="dialog-actions"><button class="alt" onclick="closeModal()">取消</button><button class="primary" onclick="document.querySelector('#clientForm').requestSubmit()">${existing ? '保存修改' : '创建客户端'}</button></div>`);
     document.querySelector('#clientForm').onsubmit = async (event) => {
       event.preventDefault();
       try {
@@ -26,8 +32,10 @@
         input.totalLimitBytes = Math.round(Number(input.total || 0) * 1073741824);
         input.monthlyLimitBytes = Math.round(Number(input.monthly || 0) * 1073741824);
         input.maxOnlineIps = Number(input.maxOnlineIps || 0);
+        input.expiryUnit = form.get('expiryUnit');
+        input.expiryAmount = input.expiryUnit === 'year' ? Number(form.get('expiryYear')) : input.expiryUnit === 'month' ? Number(form.get('expiryMonth')) : input.expiryUnit === 'day' ? Number(form.get('expiryDay')) : 0;
         if (!existing) input.randomSubscriptionSuffix = form.get('randomSubscriptionSuffix') === 'on';
-        const client = await window.api(existing ? `/api/clients/${existing.id}` : '/api/clients', { method: existing ? 'PATCH' : 'POST', body: JSON.stringify(input) });
+        const client = await window.api(existing ? `/api/clients/${existing.id}` : '/api/clients', {method: existing ? 'PATCH' : 'POST', body: JSON.stringify(input)});
         window.closeModal();
         await window.load();
         window.clientDetail(existing?.id || client.id);
