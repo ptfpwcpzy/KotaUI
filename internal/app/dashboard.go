@@ -5,6 +5,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -29,6 +30,11 @@ type healthHint struct {
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
 	Target string `json:"target"`
+}
+
+type publicNetworkAddresses struct {
+	IPv4 []string `json:"ipv4"`
+	IPv6 []string `json:"ipv6"`
 }
 
 const onlineActivityWindow = 20 * time.Second
@@ -138,6 +144,69 @@ func formatBytes(value int64) string {
 		return fmt.Sprintf("%.1f MB", float64(value)/(1024*1024))
 	}
 	return fmt.Sprintf("%.1f GB", float64(value)/(1024*1024*1024))
+}
+
+func publicNetworkAddressesForHost() publicNetworkAddresses {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return publicNetworkAddresses{}
+	}
+	addresses := make([]net.Addr, 0, len(interfaces)*2)
+	for _, iface := range interfaces {
+		values, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		addresses = append(addresses, values...)
+	}
+	return publicNetworkAddressesFrom(addresses)
+}
+
+func publicNetworkAddressesFrom(addresses []net.Addr) publicNetworkAddresses {
+	seen4, seen6 := make(map[string]bool), make(map[string]bool)
+	result := publicNetworkAddresses{IPv4: make([]string, 0, 1), IPv6: make([]string, 0, 1)}
+	for _, address := range addresses {
+		var ip net.IP
+		switch value := address.(type) {
+		case *net.IPNet:
+			ip = value.IP
+		case *net.IPAddr:
+			ip = value.IP
+		default:
+			continue
+		}
+		if v4 := ip.To4(); v4 != nil {
+			ip = v4
+		}
+		if !isPublicHostIP(ip) {
+			continue
+		}
+		text := ip.String()
+		if ip.To4() != nil {
+			if !seen4[text] {
+				seen4[text] = true
+				result.IPv4 = append(result.IPv4, text)
+			}
+			continue
+		}
+		if !seen6[text] {
+			seen6[text] = true
+			result.IPv6 = append(result.IPv6, text)
+		}
+	}
+	sort.Strings(result.IPv4)
+	sort.Strings(result.IPv6)
+	return result
+}
+
+func isPublicHostIP(ip net.IP) bool {
+	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4[0] != 0 && v4[0] < 224 && !(v4[0] == 100 && v4[1]&0xc0 == 0x40)
+	}
+	return true
 }
 
 var systemdAvailable = hasSystemd

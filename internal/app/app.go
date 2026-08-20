@@ -107,6 +107,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/certificate/renew", a.auth(a.renewCertificate))
 	mux.HandleFunc("/api/certificate/status", a.auth(a.certificateRenewStatus))
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
+	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +153,19 @@ func (a *App) panel(w http.ResponseWriter, _ *http.Request) {
 	body, _ := files.ReadFile("web/index.html")
 	w.Header().Set("content-type", "text/html; charset=utf-8")
 	_, _ = w.Write(body)
+}
+
+func embeddedAsset(name, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		body, err := files.ReadFile(name)
+		if err != nil {
+			http.NotFound(w, nil)
+			return
+		}
+		w.Header().Set("content-type", contentType)
+		w.Header().Set("cache-control", "no-store")
+		_, _ = w.Write(body)
+	}
 }
 func (a *App) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": config.Version})
@@ -258,6 +273,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"certificate":         certificate,
 		"services":            services,
 		"healthHints":         dashboardHints(s, certificate, services),
+		"network":             publicNetworkAddressesForHost(),
 	})
 }
 

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -191,12 +192,36 @@ func TestRecentOnlineUsers(t *testing.T) {
 	}
 }
 
+func TestPublicNetworkAddressesFrom(t *testing.T) {
+	addresses := []net.Addr{
+		&net.IPAddr{IP: net.ParseIP("198.51.100.29")},
+		&net.IPAddr{IP: net.ParseIP("2001:db8::29")},
+		&net.IPAddr{IP: net.ParseIP("10.0.0.2")},
+		&net.IPAddr{IP: net.ParseIP("fe80::1")},
+		&net.IPAddr{IP: net.ParseIP("198.51.100.29")},
+	}
+	got := publicNetworkAddressesFrom(addresses)
+	if len(got.IPv4) != 1 || got.IPv4[0] != "198.51.100.29" {
+		t.Fatalf("unexpected IPv4 addresses: %#v", got.IPv4)
+	}
+	if len(got.IPv6) != 1 || got.IPv6[0] != "2001:db8::29" {
+		t.Fatalf("unexpected IPv6 addresses: %#v", got.IPv6)
+	}
+}
+
 func TestDashboardAndSNITest(t *testing.T) {
 	a := testApp(t)
 	h := a.Handler()
 	cookie := login(t, a)
-	if got := request(t, h, http.MethodGet, "/api/dashboard", nil, cookie).Code; got != http.StatusOK {
-		t.Fatalf("dashboard status %d", got)
+	dashboard := request(t, h, http.MethodGet, "/api/dashboard", nil, cookie)
+	if dashboard.Code != http.StatusOK {
+		t.Fatalf("dashboard status %d", dashboard.Code)
+	}
+	if !strings.Contains(dashboard.Body.String(), `"network"`) {
+		t.Fatalf("dashboard network field missing: %s", dashboard.Body.String())
+	}
+	if asset := request(t, h, http.MethodGet, "/assets/overview.js", nil, nil); asset.Code != http.StatusOK || !strings.Contains(asset.Body.String(), "viewDashboard") {
+		t.Fatalf("overview script asset %d: %s", asset.Code, asset.Body.String())
 	}
 	a.sniProbe = func(_ context.Context, host string, port int) (sniTestResult, error) {
 		if host != "www.example.com" || port != 443 {
