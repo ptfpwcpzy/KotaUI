@@ -8,6 +8,6 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/ptfpwcpzy/KotaUI/main/install.sh)
 ```
 
-安装时按提示设置证书、面板端口、路径和管理员账号。安装完成后可输入 `kota` 打开管理菜单。
+安装时按提示设置证书、面板端口、路径和管理员账号。安装完成后可输入 `kota` 打开管理菜单。客户端详情会优先展示标准 `https://域名/kota-sub/...` 订阅地址；旧版 `:1109` 订阅服务继续保留兼容。
 
 > 作者那么羡慕你，仅供学习自用，请勿随意传播。

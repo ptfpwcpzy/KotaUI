@@ -25,6 +25,11 @@ func main() {
 		log.Fatal(err)
 	}
 	go func() {
+		if err := application.ServeStandardSubscription(); err != nil {
+			log.Printf("standard HTTPS subscription listener: %v", err)
+		}
+	}()
+	go func() {
 		if err := application.ServeSubscription(); err != nil {
 			log.Printf("subscription listener: %v", err)
 		}
@@ -58,12 +63,16 @@ func loadRuntime() (config.Runtime, error) {
 	if err != nil {
 		return config.Runtime{}, err
 	}
+	standardSubscriptionPort, err := portValue("KOTAUI_SUBSCRIPTION_HTTPS_PORT", value("KOTAUI_SUBSCRIPTION_HTTPS_PORT", "443"), 1)
+	if err != nil {
+		return config.Runtime{}, err
+	}
 	statsPort, err := portValue("KOTAUI_STATS_PORT", value("KOTAUI_STATS_PORT", "9090"), 1)
 	if err != nil {
 		return config.Runtime{}, err
 	}
-	if subscriptionPort == panelPort || statsPort == panelPort || statsPort == subscriptionPort {
-		return config.Runtime{}, fmt.Errorf("面板、订阅和统计端口不能重复")
+	if subscriptionPort == panelPort || standardSubscriptionPort == panelPort || statsPort == panelPort || statsPort == subscriptionPort || statsPort == standardSubscriptionPort || subscriptionPort == standardSubscriptionPort {
+		return config.Runtime{}, fmt.Errorf("面板、订阅、标准订阅和统计端口不能重复")
 	}
 	listen := value("KOTAUI_LISTEN", fmt.Sprintf("0.0.0.0:%d", panelPort))
 	_, listenPort, err := net.SplitHostPort(listen)
@@ -86,20 +95,21 @@ func loadRuntime() (config.Runtime, error) {
 		return config.Runtime{}, fmt.Errorf("KOTAUI_DOMAIN 不能为空")
 	}
 	return config.Runtime{
-		DataDir:          dataDir,
-		Listen:           listen,
-		PanelPath:        config.NormalizePath(value("KOTAUI_PANEL_PATH", "ptf")),
-		SubscriptionPort: subscriptionPort,
-		Domain:           domain,
-		CertificateType:  value("KOTAUI_CERT_TYPE", "domain"),
-		TLSCert:          value("KOTAUI_TLS_CERT", filepath.Join(dataDir, "certs", "fullchain.pem")),
-		TLSKey:           value("KOTAUI_TLS_KEY", filepath.Join(dataDir, "certs", "privkey.pem")),
-		AdminUser:        adminUser,
-		AdminPassword:    adminPassword,
-		SingBoxBin:       value("KOTAUI_SINGBOX_BIN", "/usr/local/bin/sing-box"),
-		SingBoxConfig:    value("KOTAUI_SINGBOX_CONFIG", filepath.Join(dataDir, "sing-box", "config.json")),
-		ManageSingBox:    value("KOTAUI_MANAGE_SINGBOX", "1") == "1",
-		StatsPort:        statsPort,
+		DataDir:               dataDir,
+		Listen:                listen,
+		PanelPath:             config.NormalizePath(value("KOTAUI_PANEL_PATH", "ptf")),
+		SubscriptionPort:      subscriptionPort,
+		SubscriptionHTTPSPort: standardSubscriptionPort,
+		Domain:                domain,
+		CertificateType:       value("KOTAUI_CERT_TYPE", "domain"),
+		TLSCert:               value("KOTAUI_TLS_CERT", filepath.Join(dataDir, "certs", "fullchain.pem")),
+		TLSKey:                value("KOTAUI_TLS_KEY", filepath.Join(dataDir, "certs", "privkey.pem")),
+		AdminUser:             adminUser,
+		AdminPassword:         adminPassword,
+		SingBoxBin:            value("KOTAUI_SINGBOX_BIN", "/usr/local/bin/sing-box"),
+		SingBoxConfig:         value("KOTAUI_SINGBOX_CONFIG", filepath.Join(dataDir, "sing-box", "config.json")),
+		ManageSingBox:         value("KOTAUI_MANAGE_SINGBOX", "1") == "1",
+		StatsPort:             statsPort,
 	}, nil
 }
 

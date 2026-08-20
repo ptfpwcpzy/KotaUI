@@ -12,20 +12,21 @@ import (
 const Version = "1.0.0"
 
 type Runtime struct {
-	DataDir          string
-	Listen           string
-	PanelPath        string
-	SubscriptionPort int
-	Domain           string
-	CertificateType  string
-	TLSCert          string
-	TLSKey           string
-	AdminUser        string
-	AdminPassword    string
-	SingBoxBin       string
-	SingBoxConfig    string
-	ManageSingBox    bool
-	StatsPort        int
+	DataDir               string
+	Listen                string
+	PanelPath             string
+	SubscriptionPort      int
+	SubscriptionHTTPSPort int
+	Domain                string
+	CertificateType       string
+	TLSCert               string
+	TLSKey                string
+	AdminUser             string
+	AdminPassword         string
+	SingBoxBin            string
+	SingBoxConfig         string
+	ManageSingBox         bool
+	StatsPort             int
 }
 
 type State struct {

@@ -721,6 +721,27 @@ func TestClientCreateAcceptsDurationExpiry(t *testing.T) {
 	}
 }
 
+func TestSubscriptionBaseURLPrefersActiveStandardHTTPSListener(t *testing.T) {
+	a := testApp(t)
+	certificate := filepath.Join(a.runtime.DataDir, "certificate.pem")
+	if err := os.WriteFile(certificate, []byte("present"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a.runtime.TLSCert = certificate
+	a.runtime.SubscriptionHTTPSPort = 443
+	if got, want := a.subscriptionBaseURL("/kota-sub"), "https://example.test:1109/kota-sub"; got != want {
+		t.Fatalf("legacy subscription URL %q, want %q", got, want)
+	}
+	a.standardSubscriptionActive.Store(true)
+	if got, want := a.subscriptionBaseURL("/kota-sub"), "https://example.test/kota-sub"; got != want {
+		t.Fatalf("standard subscription URL %q, want %q", got, want)
+	}
+	a.runtime.SubscriptionHTTPSPort = 18443
+	if got, want := a.subscriptionBaseURL("/kota-sub"), "https://example.test:18443/kota-sub"; got != want {
+		t.Fatalf("custom standard subscription URL %q, want %q", got, want)
+	}
+}
+
 func TestInboundMutationUsesOpenRCServiceRestart(t *testing.T) {
 	previous := systemdAvailable
 	systemdAvailable = func() bool { return false }
