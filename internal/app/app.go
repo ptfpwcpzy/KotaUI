@@ -17,6 +17,7 @@ import (
 	"path"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -568,7 +569,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	var incoming config.Settings
+	var incoming settingsUpdateRequest
 	if err := decodeJSON(r, &incoming); err != nil {
 		badRequest(w, err)
 		return
@@ -589,10 +590,21 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		incoming.OutboundStrategy = strategy
 	}
+	if incoming.BlockedDomains != nil {
+		domains, err := normalizeBlockedDomains(incoming.BlockedDomains)
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
+		incoming.BlockedDomains = domains
+	}
 	current := a.store.Snapshot().Settings
 	outboundChanged := incoming.OutboundStrategy != "" && incoming.OutboundStrategy != current.OutboundStrategy
 	candidatesChanged := incoming.RealityCandidates != nil && !reflect.DeepEqual(incoming.RealityCandidates, current.RealityCandidates)
-	if !outboundChanged {
+	blockedDomainsChanged := incoming.BlockedDomains != nil && !reflect.DeepEqual(incoming.BlockedDomains, current.BlockedDomains)
+	blockBitTorrentChanged := incoming.BlockBitTorrent != nil && *incoming.BlockBitTorrent != current.BlockBitTorrent
+	requiresCoreApply := outboundChanged || blockedDomainsChanged || blockBitTorrentChanged
+	if !requiresCoreApply {
 		if !candidatesChanged {
 			writeJSON(w, http.StatusOK, map[string]any{"settings": current, "applied": true, "message": "设置没有变化，当前配置已生效。"})
 			return
@@ -621,6 +633,12 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		if incoming.OutboundStrategy != "" {
 			s.Settings.OutboundStrategy = incoming.OutboundStrategy
 		}
+		if incoming.BlockedDomains != nil {
+			s.Settings.BlockedDomains = incoming.BlockedDomains
+		}
+		if incoming.BlockBitTorrent != nil {
+			s.Settings.BlockBitTorrent = *incoming.BlockBitTorrent
+		}
 		return nil
 	})
 	if err != nil {
@@ -628,7 +646,35 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settings := a.store.Snapshot().Settings
-	writeJSON(w, http.StatusAccepted, map[string]any{"settings": settings, "applied": false, "message": "出站网络策略已保存，正在重启 sing-box 核心并检查恢复。"})
+	writeJSON(w, http.StatusAccepted, map[string]any{"settings": settings, "applied": false, "message": "访问控制设置已保存，正在重启 sing-box 核心并检查恢复。"})
+}
+
+type settingsUpdateRequest struct {
+	RealityCandidates []config.RealityCandidate `json:"realityCandidates"`
+	OutboundStrategy  string                    `json:"outboundStrategy"`
+	BlockedDomains    []string                  `json:"blockedDomains"`
+	BlockBitTorrent   *bool                     `json:"blockBitTorrent"`
+}
+
+func normalizeBlockedDomains(values []string) ([]string, error) {
+	if len(values) > 256 {
+		return nil, errors.New("黑名单域名最多 256 个")
+	}
+	seen := make(map[string]bool, len(values))
+	domains := make([]string, 0, len(values))
+	for _, value := range values {
+		host, err := normalizeSNIHost(value)
+		if err != nil {
+			return nil, fmt.Errorf("黑名单域名无效：%w", err)
+		}
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		domains = append(domains, host)
+	}
+	sort.Strings(domains)
+	return domains, nil
 }
 func normalizeRealityCandidates(values []config.RealityCandidate) ([]config.RealityCandidate, error) {
 	if len(values) > 64 {

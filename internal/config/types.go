@@ -46,6 +46,8 @@ type Settings struct {
 	SubscriptionPath  string             `json:"subscriptionPath"`
 	RealityCandidates []RealityCandidate `json:"realityCandidates"`
 	OutboundStrategy  string             `json:"outboundStrategy"`
+	BlockedDomains    []string           `json:"blockedDomains"`
+	BlockBitTorrent   bool               `json:"blockBitTorrent"`
 }
 
 type RealityCandidate struct {

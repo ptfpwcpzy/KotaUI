@@ -88,3 +88,40 @@ func TestWriteAppliesOutboundAddressStrategy(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteAddsDomainAndBitTorrentBlockRules(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.BlockedDomains = []string{"example.com", "tracker.example"}
+	state.Settings.BlockBitTorrent = true
+	runtime := config.Runtime{SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Route struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Route.Rules) != 3 {
+		t.Fatalf("route rules = %#v", decoded.Route.Rules)
+	}
+	if decoded.Route.Rules[0]["action"] != "sniff" || decoded.Route.Rules[1]["action"] != "reject" || decoded.Route.Rules[2]["action"] != "reject" {
+		t.Fatalf("unexpected route actions: %#v", decoded.Route.Rules)
+	}
+	domains, ok := decoded.Route.Rules[1]["domain_suffix"].([]any)
+	if !ok || len(domains) != 2 || domains[0] != "example.com" || domains[1] != "tracker.example" {
+		t.Fatalf("domain block rule = %#v", decoded.Route.Rules[1])
+	}
+	protocols, ok := decoded.Route.Rules[2]["protocol"].([]any)
+	if !ok || len(protocols) != 1 || protocols[0] != "bittorrent" {
+		t.Fatalf("BT block rule = %#v", decoded.Route.Rules[2])
+	}
+}

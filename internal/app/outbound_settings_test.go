@@ -66,3 +66,27 @@ func TestSettingsSavesRealityCandidatesWithoutCoreReload(t *testing.T) {
 		t.Fatalf("stored candidates = %#v", candidates)
 	}
 }
+
+func TestSettingsAppliesAccessControls(t *testing.T) {
+	a := testApp(t)
+	cookie := login(t, a)
+	blockBitTorrent := true
+	w := request(t, a.Handler(), http.MethodPut, "/api/settings", map[string]any{
+		"blockedDomains":  []string{"WWW.Example.COM.", "tracker.example.com", "www.example.com"},
+		"blockBitTorrent": blockBitTorrent,
+	}, cookie)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("access control status = %d: %s", w.Code, w.Body.String())
+	}
+	settings := a.store.Snapshot().Settings
+	if !settings.BlockBitTorrent || len(settings.BlockedDomains) != 2 || settings.BlockedDomains[0] != "tracker.example.com" || settings.BlockedDomains[1] != "www.example.com" {
+		t.Fatalf("stored access controls = %#v", settings)
+	}
+	deadline := time.Now().Add(time.Second)
+	for a.settingsApplyInProgress() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if a.settingsApplyInProgress() {
+		t.Fatal("access control apply task did not finish")
+	}
+}
