@@ -77,23 +77,23 @@ type Inbound struct {
 }
 
 type Client struct {
-	ID                string            `json:"id"`
-	Username          string            `json:"username"`
-	Note              string            `json:"note,omitempty"`
-	InboundIDs        []string          `json:"inboundIds"`
-	Credentials       map[string]string `json:"credentials"`
-	TotalLimitBytes   int64             `json:"totalLimitBytes"`
-	MonthlyLimitBytes int64             `json:"monthlyLimitBytes"`
-	UsedBytes         int64             `json:"usedBytes"`
-	UploadBytes       int64             `json:"uploadBytes"`
-	DownloadBytes     int64             `json:"downloadBytes"`
-	MonthlyUsedBytes  int64             `json:"monthlyUsedBytes"`
-	Month             string            `json:"month"`
-	ExpiresAt         string            `json:"expiresAt,omitempty"`
-	MaxOnlineIPs      int               `json:"maxOnlineIps"`
-	Paused            bool              `json:"paused"`
-	LastActiveAt      time.Time         `json:"lastActiveAt,omitempty"`
-	CreatedAt         time.Time         `json:"createdAt"`
+	ID                 string            `json:"id"`
+	Username           string            `json:"username"`
+	SubscriptionSuffix string            `json:"subscriptionSuffix,omitempty"`
+	InboundIDs         []string          `json:"inboundIds"`
+	Credentials        map[string]string `json:"credentials"`
+	TotalLimitBytes    int64             `json:"totalLimitBytes"`
+	MonthlyLimitBytes  int64             `json:"monthlyLimitBytes"`
+	UsedBytes          int64             `json:"usedBytes"`
+	UploadBytes        int64             `json:"uploadBytes"`
+	DownloadBytes      int64             `json:"downloadBytes"`
+	MonthlyUsedBytes   int64             `json:"monthlyUsedBytes"`
+	Month              string            `json:"month"`
+	ExpiresAt          string            `json:"expiresAt,omitempty"`
+	MaxOnlineIPs       int               `json:"maxOnlineIps"`
+	Paused             bool              `json:"paused"`
+	LastActiveAt       time.Time         `json:"lastActiveAt,omitempty"`
+	CreatedAt          time.Time         `json:"createdAt"`
 }
 
 func DefaultState(domain string) State {
@@ -110,6 +110,27 @@ func DefaultState(domain string) State {
 func NewID() string            { return randomHex(16) }
 func RandomHex(n int) string   { return randomHex(n) }
 func RandomToken(n int) string { return randomHex(n) }
+func RandomLetters(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	const alphabet = "abcdefghijklmnopqrstuvwxyz"
+	limit := 256 - (256 % len(alphabet))
+	output := make([]byte, n)
+	for index := range output {
+		for {
+			var value [1]byte
+			if _, err := rand.Read(value[:]); err != nil {
+				panic(fmt.Sprintf("random source: %v", err))
+			}
+			if int(value[0]) < limit {
+				output[index] = alphabet[int(value[0])%len(alphabet)]
+				break
+			}
+		}
+	}
+	return string(output)
+}
 func RandomBase64(bytes int) string {
 	buf := make([]byte, bytes)
 	if _, err := rand.Read(buf); err != nil {

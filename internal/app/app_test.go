@@ -99,24 +99,40 @@ func TestInboundClientAndSubscription(t *testing.T) {
 	}
 	var created config.Inbound
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
-	client := map[string]any{"username": "alice", "note": "测试", "inboundIds": []string{created.ID}, "totalLimitBytes": 1024, "monthlyLimitBytes": 512, "maxOnlineIps": 1}
+	client := map[string]any{"username": "alice", "inboundIds": []string{created.ID}, "totalLimitBytes": 1024, "monthlyLimitBytes": 512, "maxOnlineIps": 1}
 	w = request(t, h, http.MethodPost, "/api/clients", client, c)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("client: %d %s", w.Code, w.Body.String())
 	}
-	w = request(t, h, http.MethodGet, "/kota-sub/alice", nil, nil)
+	state := a.store.Snapshot()
+	saved := state.Clients[0]
+	if len(saved.SubscriptionSuffix) != 5 || strings.Trim(saved.SubscriptionSuffix, "abcdefghijklmnopqrstuvwxyz") != "" {
+		t.Fatalf("unexpected subscription suffix: %q", saved.SubscriptionSuffix)
+	}
+	if w = request(t, h, http.MethodGet, "/kota-sub/alice", nil, nil); w.Code != http.StatusNotFound {
+		t.Fatalf("predictable subscription path should not work: %d", w.Code)
+	}
+	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(saved), nil, nil)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "hysteria2://") {
 		t.Fatalf("subscription: %d %s", w.Code, w.Body.String())
 	}
-	var saved config.Client
-	_ = json.Unmarshal(request(t, h, http.MethodGet, "/api/clients", nil, c).Body.Bytes(), &[]config.Client{})
-	state := a.store.Snapshot()
-	saved = state.Clients[0]
+	directClient := map[string]any{"username": "bob", "subscriptionSuffix": "forced", "randomSubscriptionSuffix": false, "inboundIds": []string{created.ID}}
+	w = request(t, h, http.MethodPost, "/api/clients", directClient, c)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("direct subscription client: %d %s", w.Code, w.Body.String())
+	}
+	directSaved := a.store.Snapshot().Clients[1]
+	if directSaved.SubscriptionSuffix != "" {
+		t.Fatalf("subscription suffix should be disabled, got %q", directSaved.SubscriptionSuffix)
+	}
+	if w = request(t, h, http.MethodGet, "/kota-sub/bob", nil, nil); w.Code != http.StatusOK {
+		t.Fatalf("direct subscription path: %d", w.Code)
+	}
 	w = request(t, h, http.MethodPost, "/api/clients/"+saved.ID+"/pause", nil, c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("pause: %d", w.Code)
 	}
-	w = request(t, h, http.MethodGet, "/kota-sub/alice", nil, nil)
+	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(saved), nil, nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("paused subscription: %d", w.Code)
 	}
@@ -369,14 +385,14 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	}
 	var client config.Client
 	_ = json.Unmarshal(w.Body.Bytes(), &client)
-	w = request(t, h, http.MethodPatch, "/api/clients/"+client.ID, map[string]any{"username": "alice2", "note": "phone", "inboundIds": ids[:2], "maxOnlineIps": 2}, cookie)
+	w = request(t, h, http.MethodPatch, "/api/clients/"+client.ID, map[string]any{"username": "alice2", "inboundIds": ids[:2], "maxOnlineIps": 2}, cookie)
 	if w.Code != http.StatusOK {
 		t.Fatalf("client edit: %d %s", w.Code, w.Body.String())
 	}
-	if got := a.store.Snapshot().Clients[0]; got.Username != "alice2" || got.Note != "phone" || len(got.InboundIDs) != 2 {
+	if got := a.store.Snapshot().Clients[0]; got.Username != "alice2" || got.SubscriptionSuffix != client.SubscriptionSuffix || len(got.InboundIDs) != 2 {
 		t.Fatalf("client edit not applied: %#v", got)
 	}
-	w = request(t, h, http.MethodGet, "/kota-sub/alice2", nil, nil)
+	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(a.store.Snapshot().Clients[0]), nil, nil)
 	raw := w.Body.String()
 	if w.Code != http.StatusOK || !strings.Contains(raw, "vless://") || !strings.Contains(raw, "hysteria2://") || !strings.Contains(raw, "ss://") {
 		t.Fatalf("raw subscription: %d %s", w.Code, raw)
@@ -391,7 +407,7 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 			}
 		}
 	}
-	browser := httptest.NewRequest(http.MethodGet, "/kota-sub/alice2", nil)
+	browser := httptest.NewRequest(http.MethodGet, "/kota-sub/"+clientSubscriptionID(a.store.Snapshot().Clients[0]), nil)
 	browser.Header.Set("user-agent", "Mozilla/5.0")
 	page := httptest.NewRecorder()
 	h.ServeHTTP(page, browser)
@@ -555,7 +571,8 @@ func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w = request(t, h, http.MethodGet, "/kota-sub/headeruser", nil, nil)
+	headerClient := a.store.Snapshot().Clients[0]
+	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(headerClient), nil, nil)
 	if got := w.Header().Get("Subscription-Userinfo"); !strings.Contains(got, "upload=123") || !strings.Contains(got, "download=456") || !strings.Contains(got, "total=1073741824") || !strings.Contains(got, "expire=") {
 		t.Fatalf("subscription userinfo header: %q", got)
 	}

@@ -109,6 +109,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/assets/client-subscription.js", embeddedAsset("web/client-subscription.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -410,12 +411,14 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		a.syncTraffic()
 		writeJSON(w, http.StatusOK, a.store.Snapshot().Clients)
 	case http.MethodPost:
-		var client config.Client
+		var request clientCreateRequest
 
-		if err := decodeJSON(r, &client); err != nil {
+		if err := decodeJSON(r, &request); err != nil {
 			badRequest(w, err)
 			return
 		}
+		client := request.Client
+		client.SubscriptionSuffix = ""
 		if err := validateClientInput(client); err != nil {
 			badRequest(w, err)
 			return
@@ -445,6 +448,13 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 					client.Credentials[id] = config.RandomToken(16)
 				}
 			}
+			if request.RandomSubscriptionSuffix == nil || *request.RandomSubscriptionSuffix {
+				suffix, err := uniqueSubscriptionSuffix(s.Clients, client.Username)
+				if err != nil {
+					return err
+				}
+				client.SubscriptionSuffix = suffix
+			}
 			s.Clients = append(s.Clients, client)
 			return nil
 		})
@@ -457,6 +467,12 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 	}
 }
+
+type clientCreateRequest struct {
+	config.Client
+	RandomSubscriptionSuffix *bool `json:"randomSubscriptionSuffix"`
+}
+
 func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients/"), "/")
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPatch {
@@ -565,7 +581,6 @@ func (a *App) updateClient(id string, incoming config.Client) error {
 			credentials[inboundID] = secret
 		}
 		target.Username = incoming.Username
-		target.Note = incoming.Note
 		target.InboundIDs = incoming.InboundIDs
 		target.Credentials = credentials
 		target.TotalLimitBytes = incoming.TotalLimitBytes
@@ -723,26 +738,33 @@ func normalizeOutboundStrategy(value string) (string, error) {
 }
 
 func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
-	username := strings.Trim(path.Base(r.URL.Path), "/")
+	subscriptionID := strings.Trim(path.Base(r.URL.Path), "/")
 	a.resetMonth()
 	a.syncTraffic()
 	state := a.store.Snapshot()
-	links, ok := proxy.Subscription(state, a.runtime, username)
+	var client config.Client
+	found := false
+	for _, value := range state.Clients {
+		if clientSubscriptionID(value) == subscriptionID {
+			client = value
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	links, ok := proxy.Subscription(state, a.runtime, client.Username)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	var client config.Client
-	for _, value := range state.Clients {
-		if value.Username == username {
-			client = value
-			break
-		}
-	}
-	a.setSubscriptionHeaders(w, client, a.subscriptionBaseURL(state.Settings.SubscriptionPath)+"/"+username)
+	subscriptionURL := a.subscriptionBaseURL(state.Settings.SubscriptionPath) + "/" + subscriptionID
+	a.setSubscriptionHeaders(w, client, subscriptionURL)
 	if strings.Contains(strings.ToLower(r.Header.Get("user-agent")), "mozilla") {
 		w.Header().Set("content-type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, a.subscriptionPage(client, strings.Count(links, "\n")+1, a.subscriptionBaseURL(state.Settings.SubscriptionPath)+"/"+username))
+		_, _ = io.WriteString(w, a.subscriptionPage(client, strings.Count(links, "\n")+1, subscriptionURL))
 		return
 	}
 	w.Header().Set("content-type", "text/plain; charset=utf-8")
@@ -849,6 +871,28 @@ func (a *App) subscriptionBaseURL(subscriptionPath string) string {
 		scheme = "https"
 	}
 	return fmt.Sprintf("%s://%s:%d%s", scheme, a.runtime.Domain, a.runtime.SubscriptionPort, config.NormalizePath(subscriptionPath))
+}
+
+func clientSubscriptionID(client config.Client) string {
+	return client.Username + client.SubscriptionSuffix
+}
+
+func uniqueSubscriptionSuffix(clients []config.Client, username string) (string, error) {
+	for range 32 {
+		suffix := config.RandomLetters(5)
+		candidate := username + suffix
+		used := false
+		for _, client := range clients {
+			if clientSubscriptionID(client) == candidate {
+				used = true
+				break
+			}
+		}
+		if !used {
+			return suffix, nil
+		}
+	}
+	return "", errors.New("无法生成唯一订阅标识，请重试")
 }
 
 func (a *App) prepareRealityInbound(v *config.Inbound) error {

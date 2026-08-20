@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
 )
@@ -15,9 +14,6 @@ func validateClientInput(client config.Client) error {
 	}
 	if len(client.InboundIDs) == 0 {
 		return errors.New("至少选择一个入站")
-	}
-	if utf8.RuneCountInString(client.Note) > 256 {
-		return errors.New("客户端备注不能超过 256 个字符")
 	}
 	if client.TotalLimitBytes < 0 || client.MonthlyLimitBytes < 0 || client.MaxOnlineIPs < 0 {
 		return errors.New("流量配额和在线 IP 限制不能小于 0")
