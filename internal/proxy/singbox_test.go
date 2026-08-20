@@ -52,6 +52,48 @@ func TestHysteriaSubscriptionCarriesObfsParameters(t *testing.T) {
 	}
 }
 
+func TestWriteAndSubscribeTUIC(t *testing.T) {
+	directory := t.TempDir()
+	runtime := config.Runtime{Domain: "example.test", TLSCert: "/tmp/fullchain.pem", TLSKey: "/tmp/privkey.pem", SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	uuid := "2dd61d93-75d8-4da4-ac0e-6aece7eac365"
+	state := config.DefaultState("example.test")
+	state.Inbounds = []config.Inbound{{ID: "tuic", Name: "tuic", Type: "tuic", Enabled: true, Listen: "0.0.0.0", Port: 24443}}
+	state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"tuic"}, Credentials: map[string]string{"tuic": uuid}, TUICPasswords: map[string]string{"tuic": "password-secret"}}}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Inbounds []struct {
+			Type              string `json:"type"`
+			CongestionControl string `json:"congestion_control"`
+			ZeroRTTHandshake  bool   `json:"zero_rtt_handshake"`
+			Users             []struct {
+				UUID     string `json:"uuid"`
+				Password string `json:"password"`
+			} `json:"users"`
+			TLS struct {
+				ALPN []string `json:"alpn"`
+			} `json:"tls"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0].Type != "tuic" || decoded.Inbounds[0].CongestionControl != "cubic" || decoded.Inbounds[0].ZeroRTTHandshake || len(decoded.Inbounds[0].Users) != 1 || decoded.Inbounds[0].Users[0].UUID != uuid || decoded.Inbounds[0].Users[0].Password != "password-secret" || len(decoded.Inbounds[0].TLS.ALPN) != 1 || decoded.Inbounds[0].TLS.ALPN[0] != "h3" {
+		t.Fatalf("unexpected TUIC config: %#v", decoded.Inbounds)
+	}
+	link, ok := Subscription(state, runtime, "alice")
+	for _, field := range []string{"tuic://" + uuid + ":password-secret@example.test:24443", "alpn=h3", "congestion_control=cubic", "udp_relay_mode=native", "sni=example.test", "allow_insecure=0"} {
+		if !ok || !strings.Contains(link, field) {
+			t.Fatalf("TUIC subscription missing %q: %q", field, link)
+		}
+	}
+}
+
 func TestWriteAppliesOutboundAddressStrategy(t *testing.T) {
 	for _, test := range []struct {
 		name     string

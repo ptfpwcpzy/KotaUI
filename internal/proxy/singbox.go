@@ -48,6 +48,15 @@ func Write(state config.State, runtime config.Runtime) error {
 				entry["obfs"] = map[string]any{"type": "salamander", "password": inbound.ObfsPassword}
 			}
 			inbounds = append(inbounds, entry)
+		case "tuic":
+			users := []map[string]any{}
+			for _, client := range active {
+				if uuid, password := client.Credentials[inbound.ID], client.TUICPasswords[inbound.ID]; uuid != "" && password != "" {
+					users = append(users, map[string]any{"name": client.Username, "uuid": uuid, "password": password})
+				}
+			}
+			tls := map[string]any{"enabled": true, "certificate_path": runtime.TLSCert, "key_path": runtime.TLSKey, "server_name": runtime.Domain, "alpn": []string{"h3"}}
+			inbounds = append(inbounds, map[string]any{"type": "tuic", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "users": users, "congestion_control": "cubic", "auth_timeout": "3s", "zero_rtt_handshake": false, "heartbeat": "10s", "tls": tls})
 		case "shadowsocks2022":
 			users := []map[string]any{}
 			for _, client := range active {
@@ -162,6 +171,13 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 					query.Set("obfs", "none")
 				}
 				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
+			case "tuic":
+				password := client.TUICPasswords[id]
+				if password == "" {
+					continue
+				}
+				query := url.Values{"alpn": []string{"h3"}, "congestion_control": []string{"cubic"}, "udp_relay_mode": []string{"native"}, "sni": []string{runtime.Domain}, "allow_insecure": []string{"0"}}
+				links = append(links, fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s", url.PathEscape(secret), url.PathEscape(password), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "shadowsocks2022":
 				// SS2022 multi-user mode requires the server EIH key followed by the user key.
 				encoded := base64.RawStdEncoding.EncodeToString([]byte("2022-blake3-aes-256-gcm:" + inbound.ServerPassword + ":" + secret))

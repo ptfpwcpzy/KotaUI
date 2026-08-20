@@ -140,6 +140,29 @@ func TestInboundClientAndSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestTUICInboundCreatesRandomClientCredentials(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "tuic", "type": "tuic", "port": 24443}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create TUIC inbound: %d %s", w.Code, w.Body.String())
+	}
+	var inbound config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &inbound)
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": "tuic-user", "inboundIds": []string{inbound.ID}}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create TUIC client: %d %s", w.Code, w.Body.String())
+	}
+	client := a.store.Snapshot().Clients[0]
+	if !config.ValidUUID(client.Credentials[inbound.ID]) || client.TUICPasswords[inbound.ID] == "" {
+		t.Fatalf("invalid TUIC credentials: %#v", client)
+	}
+	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(client), nil, nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "tuic://") {
+		t.Fatalf("TUIC subscription: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestNormalizeRealityCandidates(t *testing.T) {
 	candidates, err := normalizeRealityCandidates([]config.RealityCandidate{
 		{Host: "WWW.Cloudflare.COM.", Port: 8443},

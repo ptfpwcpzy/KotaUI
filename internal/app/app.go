@@ -110,6 +110,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-subscription.js", embeddedAsset("web/client-subscription.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/assets/tuic.css", embeddedAsset("web/tuic.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("/assets/tuic.js", embeddedAsset("web/tuic.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +429,7 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		client.CreatedAt = time.Now().UTC()
 		client.Month = time.Now().Format("2006-01")
 		client.Credentials = map[string]string{}
+		client.TUICPasswords = map[string]string{}
 		err := a.mutate(func(s *config.State) error {
 			for _, existing := range s.Clients {
 				if existing.Username == client.Username {
@@ -442,10 +445,10 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 				if !exists {
 					return errors.New("选择的入站不存在")
 				}
-				if protocol == "shadowsocks2022" {
-					client.Credentials[id] = config.RandomBase64(32)
-				} else {
-					client.Credentials[id] = config.RandomToken(16)
+				credential, tuicPassword := newClientCredentials(protocol)
+				client.Credentials[id] = credential
+				if tuicPassword != "" {
+					client.TUICPasswords[id] = tuicPassword
 				}
 			}
 			if request.RandomSubscriptionSuffix == nil || *request.RandomSubscriptionSuffix {
@@ -471,6 +474,17 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 type clientCreateRequest struct {
 	config.Client
 	RandomSubscriptionSuffix *bool `json:"randomSubscriptionSuffix"`
+}
+
+func newClientCredentials(protocol string) (credential, tuicPassword string) {
+	switch protocol {
+	case "shadowsocks2022":
+		return config.RandomBase64(32), ""
+	case "tuic":
+		return config.RandomUUID(), config.RandomToken(16)
+	default:
+		return config.RandomToken(16), ""
+	}
 }
 
 func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
@@ -517,11 +531,16 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 				for _, inbound := range s.Inbounds {
 					types[inbound.ID] = inbound.Type
 				}
+				if c.TUICPasswords == nil {
+					c.TUICPasswords = map[string]string{}
+				}
 				for inboundID := range c.Credentials {
-					if types[inboundID] == "shadowsocks2022" {
-						c.Credentials[inboundID] = config.RandomBase64(32)
+					credential, tuicPassword := newClientCredentials(types[inboundID])
+					c.Credentials[inboundID] = credential
+					if tuicPassword != "" {
+						c.TUICPasswords[inboundID] = tuicPassword
 					} else {
-						c.Credentials[inboundID] = config.RandomToken(16)
+						delete(c.TUICPasswords, inboundID)
 					}
 				}
 			case "delete":
@@ -565,24 +584,28 @@ func (a *App) updateClient(id string, incoming config.Client) error {
 			types[inbound.ID] = inbound.Type
 		}
 		credentials := map[string]string{}
+		tuicPasswords := map[string]string{}
 		for _, inboundID := range incoming.InboundIDs {
 			protocol, exists := types[inboundID]
 			if !exists {
 				return errors.New("选择的入站不存在")
 			}
 			secret := target.Credentials[inboundID]
-			if secret == "" {
-				if protocol == "shadowsocks2022" {
-					secret = config.RandomBase64(32)
-				} else {
-					secret = config.RandomToken(16)
+			if protocol == "tuic" {
+				password := target.TUICPasswords[inboundID]
+				if !config.ValidUUID(secret) || password == "" {
+					secret, password = newClientCredentials(protocol)
 				}
+				tuicPasswords[inboundID] = password
+			} else if secret == "" {
+				secret, _ = newClientCredentials(protocol)
 			}
 			credentials[inboundID] = secret
 		}
 		target.Username = incoming.Username
 		target.InboundIDs = incoming.InboundIDs
 		target.Credentials = credentials
+		target.TUICPasswords = tuicPasswords
 		target.TotalLimitBytes = incoming.TotalLimitBytes
 		target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
 		target.ExpiresAt = incoming.ExpiresAt
@@ -1020,8 +1043,9 @@ func validateInbound(v *config.Inbound) error {
 		if !validSS2022Key(v.ServerPassword) {
 			return errors.New("Shadowsocks 2022 服务端密钥必须是 32 字节 Base64")
 		}
+	case "tuic":
 	default:
-		return errors.New("仅支持 REALITY、Hysteria 2、Shadowsocks 2022")
+		return errors.New("仅支持 REALITY、Hysteria 2、Shadowsocks 2022、TUIC")
 	}
 	return nil
 }
@@ -1051,9 +1075,20 @@ func normalizeProtocolSecrets(s *store.Store, singBoxBin string) error {
 			}
 		}
 		for i := range state.Clients {
+			if state.Clients[i].TUICPasswords == nil {
+				state.Clients[i].TUICPasswords = map[string]string{}
+			}
 			for id := range state.Clients[i].Credentials {
 				if types[id] == "shadowsocks2022" && !validSS2022Key(state.Clients[i].Credentials[id]) {
 					state.Clients[i].Credentials[id] = config.RandomBase64(32)
+				}
+				if types[id] == "tuic" {
+					if !config.ValidUUID(state.Clients[i].Credentials[id]) {
+						state.Clients[i].Credentials[id] = config.RandomUUID()
+					}
+					if state.Clients[i].TUICPasswords[id] == "" {
+						state.Clients[i].TUICPasswords[id] = config.RandomToken(16)
+					}
 				}
 			}
 		}

@@ -82,6 +82,7 @@ type Client struct {
 	SubscriptionSuffix string            `json:"subscriptionSuffix,omitempty"`
 	InboundIDs         []string          `json:"inboundIds"`
 	Credentials        map[string]string `json:"credentials"`
+	TUICPasswords      map[string]string `json:"tuicPasswords,omitempty"`
 	TotalLimitBytes    int64             `json:"totalLimitBytes"`
 	MonthlyLimitBytes  int64             `json:"monthlyLimitBytes"`
 	UsedBytes          int64             `json:"usedBytes"`
@@ -130,6 +131,23 @@ func RandomLetters(n int) string {
 		}
 	}
 	return string(output)
+}
+func RandomUUID() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		panic(fmt.Sprintf("random source: %v", err))
+	}
+	buf[6] = (buf[6] & 0x0f) | 0x40
+	buf[8] = (buf[8] & 0x3f) | 0x80
+	value := hex.EncodeToString(buf)
+	return value[0:8] + "-" + value[8:12] + "-" + value[12:16] + "-" + value[16:20] + "-" + value[20:]
+}
+func ValidUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	decoded, err := hex.DecodeString(strings.ReplaceAll(value, "-", ""))
+	return err == nil && len(decoded) == 16
 }
 func RandomBase64(bytes int) string {
 	buf := make([]byte, bytes)
