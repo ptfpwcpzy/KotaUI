@@ -3,9 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
 )
@@ -33,11 +31,7 @@ func (a *App) startSettingsApply(fn func(*config.State) error) error {
 		return err
 	}
 
-	a.mu.Lock()
-	err := a.store.UpdateWith(fn, func(candidate config.State) error {
-		return writeAndValidateConfig(candidate, a.runtime)
-	})
-	a.mu.Unlock()
+	err := a.commitConfigMutation(fn)
 	if err != nil {
 		finish("failed", "设置保存失败："+err.Error())
 		return err
@@ -76,25 +70,12 @@ func (a *App) settingsApplyStatePath() string {
 }
 
 func (a *App) writeSettingsApplyProgress(state, message string) error {
-	path := a.settingsApplyStatePath()
-	temporary := path + ".tmp"
-	body := strings.TrimSpace(state) + "\n" + strings.TrimSpace(message) + "\n"
-	if err := os.WriteFile(temporary, []byte(body), 0600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
+	return writeTaskProgress(a.settingsApplyStatePath(), "", state, message)
 }
 
 func (a *App) readSettingsApplyProgress() (string, string) {
-	body, err := os.ReadFile(a.settingsApplyStatePath())
-	if err != nil {
-		return "", ""
-	}
-	parts := strings.SplitN(strings.TrimSpace(string(body)), "\n", 2)
-	if len(parts) == 1 {
-		return strings.TrimSpace(parts[0]), ""
-	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	progress := readTaskProgress(a.settingsApplyStatePath())
+	return progress.State, progress.Message
 }
 
 func (a *App) settingsApplyInProgress() bool {

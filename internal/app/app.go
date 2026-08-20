@@ -37,6 +37,7 @@ type App struct {
 	store               *store.Store
 	key                 []byte
 	mu                  sync.Mutex
+	coreReloadMu        sync.Mutex
 	trafficMu           sync.Mutex
 	lastTrafficSync     time.Time
 	trafficSyncInterval time.Duration
@@ -96,7 +97,6 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/clients/", a.auth(a.clientAction))
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
 	mux.HandleFunc("/api/settings/status", a.auth(a.settingsApplyStatus))
-	mux.HandleFunc("/api/config/validate", a.auth(a.validateConfig))
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
 	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
 	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
@@ -634,14 +634,6 @@ func normalizeOutboundStrategy(value string) (string, error) {
 	}
 }
 
-func (a *App) validateConfig(w http.ResponseWriter, _ *http.Request) {
-	if err := writeAndValidateConfig(a.store.Snapshot(), a.runtime); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "output": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 	username := strings.Trim(path.Base(r.URL.Path), "/")
 	a.resetMonth()
@@ -717,16 +709,17 @@ func (a *App) mutate(fn func(*config.State) error) error {
 	if a.settingsApplyInProgress() {
 		return errors.New("设置正在应用，暂不能修改配置")
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if err := a.store.UpdateWith(fn, func(candidate config.State) error {
-		return writeAndValidateConfig(candidate, a.runtime)
-	}); err != nil {
+	if err := a.commitConfigMutation(fn); err != nil {
 		return err
 	}
 	return a.restartManagedSingBox()
 }
 func (a *App) resetMonth() {
+	if a.updateIsRunning() || a.settingsApplyInProgress() {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	current := time.Now().Format("2006-01")
 	snapshot := a.store.Snapshot()
 	needsReset := false
@@ -739,7 +732,7 @@ func (a *App) resetMonth() {
 	if !needsReset {
 		return
 	}
-	_ = a.mutate(func(s *config.State) error {
+	if err := a.store.UpdateWith(func(s *config.State) error {
 		for i := range s.Clients {
 			if s.Clients[i].Month != current {
 				s.Clients[i].Month = current
@@ -747,7 +740,12 @@ func (a *App) resetMonth() {
 			}
 		}
 		return nil
-	})
+	}, func(candidate config.State) error {
+		return writeAndValidateConfig(candidate, a.runtime)
+	}); err != nil {
+		return
+	}
+	go func() { _ = a.restartManagedSingBox() }()
 }
 func (a *App) panelURL() string {
 	scheme := "http"

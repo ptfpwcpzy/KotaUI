@@ -1,7 +1,6 @@
 package app
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -11,13 +10,6 @@ import (
 	"strings"
 	"time"
 )
-
-type updateProgress struct {
-	RunID     string `json:"runId,omitempty"`
-	State     string `json:"state"`
-	Message   string `json:"message,omitempty"`
-	UpdatedAt int64  `json:"updatedAt"`
-}
 
 func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -167,17 +159,7 @@ func (a *App) writeUpdateProgress(state, message string) error {
 }
 
 func (a *App) writeUpdateProgressForRun(runID, state, message string) error {
-	progress := updateProgress{RunID: strings.TrimSpace(runID), State: strings.TrimSpace(state), Message: strings.TrimSpace(message), UpdatedAt: time.Now().Unix()}
-	body, err := json.Marshal(progress)
-	if err != nil {
-		return err
-	}
-	path := a.updateStatePath()
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, append(body, '\n'), 0600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
+	return writeTaskProgress(a.updateStatePath(), runID, state, message)
 }
 
 func (a *App) readUpdateProgress() (string, string) {
@@ -185,24 +167,8 @@ func (a *App) readUpdateProgress() (string, string) {
 	return progress.State, progress.Message
 }
 
-func (a *App) readUpdateProgressDetail() updateProgress {
-	body, err := os.ReadFile(a.updateStatePath())
-	if err != nil {
-		return updateProgress{}
-	}
-	var progress updateProgress
-	if json.Unmarshal(body, &progress) == nil && progress.State != "" {
-		return progress
-	}
-	parts := strings.SplitN(strings.TrimSpace(string(body)), "\n", 2)
-	if len(parts) == 0 {
-		return updateProgress{}
-	}
-	progress.State = strings.TrimSpace(parts[0])
-	if len(parts) == 2 {
-		progress.Message = strings.TrimSpace(parts[1])
-	}
-	return progress
+func (a *App) readUpdateProgressDetail() taskProgress {
+	return readTaskProgress(a.updateStatePath())
 }
 
 func (a *App) setUpdateMessage(message string) {

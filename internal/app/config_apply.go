@@ -35,3 +35,14 @@ func writeAndValidateConfig(state config.State, runtime config.Runtime) error {
 	}
 	return os.Rename(staging, runtime.SingBoxConfig)
 }
+
+// commitConfigMutation serializes state persistence with generated-config
+// replacement. Callers choose whether the subsequent core restart is
+// synchronous (interactive resource changes) or background (maintenance).
+func (a *App) commitConfigMutation(fn func(*config.State) error) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.store.UpdateWith(fn, func(candidate config.State) error {
+		return writeAndValidateConfig(candidate, a.runtime)
+	})
+}

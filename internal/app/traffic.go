@@ -140,7 +140,7 @@ func (a *App) syncTraffic() {
 		return
 	}
 	reloadCore := false
-	_ = a.store.Update(func(next *config.State) error {
+	if err := a.store.Update(func(next *config.State) error {
 		if next.TrafficCounters == nil {
 			next.TrafficCounters = map[string]config.TrafficCounters{}
 		}
@@ -180,10 +180,15 @@ func (a *App) syncTraffic() {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return
+	}
 	if reloadCore {
-		if err := writeAndValidateConfig(a.store.Snapshot(), a.runtime); err == nil && a.runtime.ManageSingBox && filePresent(a.runtime.SingBoxBin) {
-			_ = a.restartManagedSingBox()
+		a.mu.Lock()
+		err := writeAndValidateConfig(a.store.Snapshot(), a.runtime)
+		a.mu.Unlock()
+		if err == nil {
+			go func() { _ = a.restartManagedSingBox() }()
 		}
 	}
 }

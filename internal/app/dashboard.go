@@ -179,12 +179,8 @@ func (a *App) serviceAction(w http.ResponseWriter, r *http.Request) {
 		unit = "kotaui-singbox"
 	}
 	if parts[0] == "singbox" && (parts[1] == "restart" || parts[1] == "start") {
-		if err := serviceCommand(unit, parts[1]).Run(); err != nil {
+		if err := a.controlManagedSingBox(parts[1]); err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "sing-box 核心操作失败：" + err.Error()})
-			return
-		}
-		if err := waitForServiceRunning(unit, serviceRecoveryTimeout); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "sing-box 核心已恢复运行"})

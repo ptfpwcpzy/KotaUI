@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -64,6 +63,11 @@ func (a *App) certificateRenewStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, message := a.readCertificateRenewProgress()
+	if state == "running" && a.certificateRenewStateOlderThan(15*time.Minute) {
+		state = "failed"
+		message = "证书续签检查长时间未完成，请查看续签日志后重试。"
+		_ = a.writeCertificateRenewProgress(state, message)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"running": state == "running", "message": message})
 }
 
@@ -71,24 +75,16 @@ func (a *App) certificateRenewStatusPath() string {
 	return filepath.Join(a.runtime.DataDir, "certificate-renew.status")
 }
 
+func (a *App) certificateRenewStateOlderThan(age time.Duration) bool {
+	info, err := os.Stat(a.certificateRenewStatusPath())
+	return err == nil && time.Since(info.ModTime()) > age
+}
+
 func (a *App) writeCertificateRenewProgress(state, message string) error {
-	path := a.certificateRenewStatusPath()
-	temporary := path + ".tmp"
-	body := strings.TrimSpace(state) + "\n" + strings.TrimSpace(message) + "\n"
-	if err := os.WriteFile(temporary, []byte(body), 0600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
+	return writeTaskProgress(a.certificateRenewStatusPath(), "", state, message)
 }
 
 func (a *App) readCertificateRenewProgress() (string, string) {
-	body, err := os.ReadFile(a.certificateRenewStatusPath())
-	if err != nil {
-		return "", ""
-	}
-	parts := strings.SplitN(strings.TrimSpace(string(body)), "\n", 2)
-	if len(parts) == 1 {
-		return strings.TrimSpace(parts[0]), ""
-	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	progress := readTaskProgress(a.certificateRenewStatusPath())
+	return progress.State, progress.Message
 }

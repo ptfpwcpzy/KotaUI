@@ -20,12 +20,18 @@ func waitForServiceRunning(name string, timeout time.Duration) error {
 	}
 }
 
-func (a *App) restartManagedSingBox() error {
+func (a *App) controlManagedSingBox(action string) error {
 	if !a.runtime.ManageSingBox || !filePresent(a.runtime.SingBoxBin) {
 		return nil
 	}
-	if err := serviceCommand("kotaui-singbox", "restart").Run(); err != nil {
-		return fmt.Errorf("sing-box 核心重启失败：%w", err)
+	a.coreReloadMu.Lock()
+	defer a.coreReloadMu.Unlock()
+	if err := serviceCommand("kotaui-singbox", action).Run(); err != nil {
+		return fmt.Errorf("sing-box 核心%s失败：%w", action, err)
 	}
 	return waitForServiceRunning("kotaui-singbox", serviceRecoveryTimeout)
+}
+
+func (a *App) restartManagedSingBox() error {
+	return a.controlManagedSingBox("restart")
 }
