@@ -11,7 +11,8 @@
   function expiryPicker(existing) {
     const current = existing?.expiresAt ? `<div class="expiry-current"><span>当前到期日</span><b>${window.esc(existing.expiresAt)}</b><label><input type="radio" name="expiryUnit" value="keep" checked> 保留</label></div>` : '';
     const unit = existing?.expiresAt ? 'keep' : 'none';
-    return `<div class="expiry-picker"><div class="expiry-heading"><b>有效期</b><small>按创建或保存日期计算；到期当天仍可使用</small></div>${current}<div class="expiry-options"><label class="expiry-unlimited"><input type="radio" name="expiryUnit" value="none" ${unit === 'none' ? 'checked' : ''}>不限</label><label class="expiry-option"><input type="number" name="expiryYear" min="1" max="9999" value="1" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true"><span><input type="radio" name="expiryUnit" value="year">年</span></label><label class="expiry-option"><input type="number" name="expiryMonth" min="1" max="9999" value="1" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true"><span><input type="radio" name="expiryUnit" value="month">月</span></label><label class="expiry-option"><input type="number" name="expiryDay" min="1" max="9999" value="1" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true"><span><input type="radio" name="expiryUnit" value="day">日</span></label></div></div>`;
+    const duration = (name, unitName, label) => `<label class="expiry-option"><input class="expiry-amount" type="number" name="${name}" min="1" max="9999" placeholder="填写数量" aria-label="填写${label}数" inputmode="numeric" onfocus="this.closest('label').querySelector('[type=radio]').checked=true" oninput="this.closest('label').querySelector('[type=radio]').checked=true"><span class="expiry-unit"><input type="radio" name="expiryUnit" value="${unitName}"><b>${label}</b></span></label>`;
+    return `<div class="expiry-picker"><div class="expiry-heading"><b>有效期</b><small>先填数字，再选择年、月或日；到期当天仍可使用</small></div>${current}<div class="expiry-options"><label class="expiry-unlimited"><input type="radio" name="expiryUnit" value="none" ${unit === 'none' ? 'checked' : ''}>不限</label>${duration('expiryYear', 'year', '年')}${duration('expiryMonth', 'month', '月')}${duration('expiryDay', 'day', '日')}</div></div>`;
   }
 
   window.clientModal = function clientModal(existing) {
@@ -34,6 +35,7 @@
         input.maxOnlineIps = Number(input.maxOnlineIps || 0);
         input.expiryUnit = form.get('expiryUnit');
         input.expiryAmount = input.expiryUnit === 'year' ? Number(form.get('expiryYear')) : input.expiryUnit === 'month' ? Number(form.get('expiryMonth')) : input.expiryUnit === 'day' ? Number(form.get('expiryDay')) : 0;
+        if (['year', 'month', 'day'].includes(input.expiryUnit) && (!Number.isInteger(input.expiryAmount) || input.expiryAmount < 1 || input.expiryAmount > 9999)) throw new Error('请填写有效期数量（1–9999）');
         if (!existing) input.randomSubscriptionSuffix = form.get('randomSubscriptionSuffix') === 'on';
         const client = await window.api(existing ? `/api/clients/${existing.id}` : '/api/clients', {method: existing ? 'PATCH' : 'POST', body: JSON.stringify(input)});
         window.closeModal();
