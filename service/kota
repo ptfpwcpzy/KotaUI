@@ -22,7 +22,6 @@ status(){
   printf '%s\n' '================ KotaUI 状态 ================'
   printf '面板地址： https://%s:%s%s\n' "$KOTAUI_DOMAIN" "$KOTAUI_PANEL_PORT" "$KOTAUI_PANEL_PATH"
   printf '面板服务： '; running kotaui && printf '运行中\n' || printf '未运行\n'
-	printf '标准订阅地址： https://%s%s/<客户端订阅标识>\n' "$KOTAUI_DOMAIN" "${KOTAUI_SUBSCRIPTION_PATH:-/kota-sub}"
   printf '核心服务： '; running kotaui-singbox && printf '运行中\n' || printf '未运行\n'
   printf '证书状态： '; openssl x509 -checkend 0 -noout -in "$KOTAUI_TLS_CERT" >/dev/null 2>&1 && printf '有效\n' || printf '无效或缺失\n'
   pause
@@ -47,9 +46,6 @@ health(){
   result=0
   curl -kfsS --max-time 3 "https://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || result=1
   curl -ksS --max-time 3 -o /dev/null "https://127.0.0.1:${KOTAUI_SUBSCRIPTION_PORT:-1109}/__health_probe" || result=1
-  if [ -n "${KOTAUI_TLS_CERT:-}" ] && [ -f "$KOTAUI_TLS_CERT" ]; then
-    curl -ksS --max-time 3 -o /dev/null "https://127.0.0.1:${KOTAUI_SUBSCRIPTION_HTTPS_PORT:-443}/__health_probe" || result=1
-  fi
   "$KOTAUI_SINGBOX_BIN" check -c "$KOTAUI_SINGBOX_CONFIG" >/dev/null 2>&1 || result=1
   [ "$result" -eq 0 ] && printf '健康检查通过。\n' || printf '健康检查失败，请查看服务日志。\n' >&2
   pause

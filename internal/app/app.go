@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
@@ -36,23 +35,22 @@ var files embed.FS
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
 
 type App struct {
-	runtime                    config.Runtime
-	store                      *store.Store
-	key                        []byte
-	mu                         sync.Mutex
-	coreReloadMu               sync.Mutex
-	trafficMu                  sync.Mutex
-	lastTrafficSync            time.Time
-	trafficSyncInterval        time.Duration
-	updateMu                   sync.Mutex
-	updateRunning              bool
-	updateRunID                string
-	updateMessage              string
-	settingsApplyMu            sync.Mutex
-	settingsApplying           bool
-	startedAt                  time.Time
-	sniProbe                   sniProbeFunc
-	standardSubscriptionActive atomic.Bool
+	runtime             config.Runtime
+	store               *store.Store
+	key                 []byte
+	mu                  sync.Mutex
+	coreReloadMu        sync.Mutex
+	trafficMu           sync.Mutex
+	lastTrafficSync     time.Time
+	trafficSyncInterval time.Duration
+	updateMu            sync.Mutex
+	updateRunning       bool
+	updateRunID         string
+	updateMessage       string
+	settingsApplyMu     sync.Mutex
+	settingsApplying    bool
+	startedAt           time.Time
+	sniProbe            sniProbeFunc
 }
 
 func New(runtime config.Runtime) (*App, error) {
@@ -62,9 +60,6 @@ func New(runtime config.Runtime) (*App, error) {
 	runtime.PanelPath = config.NormalizePath(runtime.PanelPath)
 	if runtime.SubscriptionPort == 0 {
 		runtime.SubscriptionPort = 1109
-	}
-	if runtime.SubscriptionHTTPSPort == 0 {
-		runtime.SubscriptionHTTPSPort = 443
 	}
 	if runtime.StatsPort == 0 {
 		runtime.StatsPort = 9090
@@ -147,36 +142,15 @@ func (a *App) syncTrafficLoop() {
 }
 
 func (a *App) ServeSubscription() error {
-	server := a.subscriptionServer(fmt.Sprintf("0.0.0.0:%d", a.runtime.SubscriptionPort))
+	mux := http.NewServeMux()
+	mux.HandleFunc(a.store.Snapshot().Settings.SubscriptionPath+"/", a.subscription)
+	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", a.runtime.SubscriptionPort), Handler: mux, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}
 	if a.runtime.TLSCert != "" && a.runtime.TLSKey != "" {
 		if _, err := os.Stat(a.runtime.TLSCert); err == nil {
 			return server.ListenAndServeTLS(a.runtime.TLSCert, a.runtime.TLSKey)
 		}
 	}
 	return server.ListenAndServe()
-}
-
-// ServeStandardSubscription exposes the same subscription handler through the
-// conventional HTTPS port. This avoids custom-port transport edge cases in
-// clients that probe HTTP/3 before falling back to regular HTTPS.
-func (a *App) ServeStandardSubscription() error {
-	if !filePresent(a.runtime.TLSCert) || !filePresent(a.runtime.TLSKey) {
-		return nil
-	}
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", a.runtime.SubscriptionHTTPSPort))
-	if err != nil {
-		return fmt.Errorf("标准 HTTPS 订阅端口 %d: %w", a.runtime.SubscriptionHTTPSPort, err)
-	}
-	server := a.subscriptionServer(listener.Addr().String())
-	a.standardSubscriptionActive.Store(true)
-	defer a.standardSubscriptionActive.Store(false)
-	return server.ServeTLS(listener, a.runtime.TLSCert, a.runtime.TLSKey)
-}
-
-func (a *App) subscriptionServer(addr string) *http.Server {
-	mux := http.NewServeMux()
-	mux.HandleFunc(a.store.Snapshot().Settings.SubscriptionPath+"/", a.subscription)
-	return &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}
 }
 
 func (a *App) panel(w http.ResponseWriter, _ *http.Request) {
@@ -976,12 +950,6 @@ func (a *App) subscriptionBaseURL(subscriptionPath string) string {
 	scheme := "http"
 	if filePresent(a.runtime.TLSCert) {
 		scheme = "https"
-	}
-	if a.standardSubscriptionActive.Load() && scheme == "https" {
-		if a.runtime.SubscriptionHTTPSPort == 443 {
-			return fmt.Sprintf("https://%s%s", a.runtime.Domain, config.NormalizePath(subscriptionPath))
-		}
-		return fmt.Sprintf("https://%s:%d%s", a.runtime.Domain, a.runtime.SubscriptionHTTPSPort, config.NormalizePath(subscriptionPath))
 	}
 	return fmt.Sprintf("%s://%s:%d%s", scheme, a.runtime.Domain, a.runtime.SubscriptionPort, config.NormalizePath(subscriptionPath))
 }
