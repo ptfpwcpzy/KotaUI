@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -31,6 +32,7 @@ type sniTestResult struct {
 	OK          bool   `json:"ok"`
 	LatencyMS   int64  `json:"latencyMs"`
 	TLSVersion  string `json:"tlsVersion,omitempty"`
+	ALPN        string `json:"alpn,omitempty"`
 	Certificate string `json:"certificate,omitempty"`
 	Message     string `json:"message,omitempty"`
 }
@@ -151,15 +153,19 @@ func probeSNI(ctx context.Context, host string, port int) (sniTestResult, error)
 			lastErr = err
 			continue
 		}
-		tlsConn := tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+		tlsConn := tls.Client(conn, strictRealityTLSConfig(host))
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
 			_ = conn.Close()
-			lastErr = err
+			lastErr = describeStrictRealityTLSError(err)
 			continue
 		}
 		state := tlsConn.ConnectionState()
 		_ = tlsConn.Close()
-		result := sniTestResult{Address: ip.String(), LatencyMS: time.Since(started).Milliseconds(), TLSVersion: tlsVersionName(state.Version)}
+		if err := validateStrictRealityTLS(state); err != nil {
+			lastErr = err
+			continue
+		}
+		result := sniTestResult{Address: ip.String(), LatencyMS: time.Since(started).Milliseconds(), TLSVersion: tlsVersionName(state.Version), ALPN: state.NegotiatedProtocol}
 		if len(state.PeerCertificates) > 0 {
 			result.Certificate = state.PeerCertificates[0].Subject.CommonName
 		}
@@ -169,6 +175,51 @@ func probeSNI(ctx context.Context, host string, port int) (sniTestResult, error)
 		lastErr = errors.New("未找到可用公网地址")
 	}
 	return sniTestResult{}, lastErr
+}
+
+// strictRealityTLSConfig offers only the panel's required TLS profile. Go does
+// not expose the selected curve in ConnectionState, so an X25519-only offer is
+// the enforcement point for that condition.
+func strictRealityTLSConfig(host string) *tls.Config {
+	return &tls.Config{
+		ServerName:       host,
+		MinVersion:       tls.VersionTLS13,
+		MaxVersion:       tls.VersionTLS13,
+		CurvePreferences: []tls.CurveID{tls.X25519},
+		NextProtos:       []string{"h2"},
+	}
+}
+
+func validateStrictRealityTLS(state tls.ConnectionState) error {
+	if state.Version != tls.VersionTLS13 {
+		return errors.New("未协商 TLS 1.3")
+	}
+	if state.NegotiatedProtocol != "h2" {
+		if state.NegotiatedProtocol == "" {
+			return errors.New("未协商 h2（目标未提供 HTTP/2 ALPN）")
+		}
+		return fmt.Errorf("未协商 h2（实际为 %s）", state.NegotiatedProtocol)
+	}
+	return nil
+}
+
+func describeStrictRealityTLSError(err error) error {
+	var hostnameError x509.HostnameError
+	if errors.As(err, &hostnameError) {
+		return errors.New("证书域名校验失败")
+	}
+	var authorityError x509.UnknownAuthorityError
+	if errors.As(err, &authorityError) {
+		return errors.New("证书链校验失败")
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "protocol version") {
+		return errors.New("不支持 TLS 1.3")
+	}
+	if strings.Contains(message, "curve") || strings.Contains(message, "key share") {
+		return errors.New("不支持 X25519 密钥交换")
+	}
+	return fmt.Errorf("TLS 1.3 / X25519 握手失败：%w", err)
 }
 
 func normalizeSNIHost(raw string) (string, error) {
