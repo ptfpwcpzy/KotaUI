@@ -171,8 +171,9 @@ func (a *App) panel(w http.ResponseWriter, _ *http.Request) {
 
 func subscriptionBrandLogo(page string) string {
 	const icon = "/assets/kotaui-logo.png"
-	page = strings.Replace(page, "<title>KotaUI 订阅</title>", `<title>KotaUI 订阅</title><link rel="icon" href="`+icon+`" type="image/png">`, 1)
-	page = strings.Replace(page, "</style>", `.logo{background:#fff!important;border:1px solid #e4ebf4;padding:6px}.logo:after,.logo svg{display:none!important}.logo img{display:block;width:100%;height:100%;object-fit:contain}</style>`, 1)
+	const favicon = "/favicon.ico?v=china-map-v2"
+	page = strings.Replace(page, "<title>KotaUI 订阅</title>", `<title>KotaUI 订阅</title><link rel="icon" href="`+favicon+`" type="image/png">`, 1)
+	page = strings.Replace(page, "</style>", `.logo{background:#fff!important;border:1px solid #e4ebf4;padding:2px}.logo:after,.logo svg{display:none!important}.logo img{display:block;width:100%;height:100%;object-fit:contain;transform:scale(1.32)}</style>`, 1)
 	return strings.Replace(page, `<div class="logo">`, `<div class="logo"><img src="`+icon+`" alt="KotaUI">`, 1)
 }
 
