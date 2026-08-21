@@ -8,9 +8,7 @@ import (
 	"time"
 )
 
-// taskProgress is the common on-disk contract for maintenance work. The
-// legacy two-line state/message format remains readable so an upgraded panel
-// can finish or report work launched by an older installed script.
+// taskProgress is the common JSON on-disk contract for maintenance work.
 type taskProgress struct {
 	RunID     string `json:"runId,omitempty"`
 	State     string `json:"state"`
@@ -52,18 +50,7 @@ func readTaskProgress(path string) taskProgress {
 	if json.Unmarshal(body, &progress) == nil && validTaskState(progress.State) {
 		return progress
 	}
-	parts := strings.SplitN(strings.TrimSpace(string(body)), "\n", 2)
-	if len(parts) == 0 || !validTaskState(parts[0]) {
-		return taskProgress{}
-	}
-	progress.State = strings.TrimSpace(parts[0])
-	if len(parts) == 2 {
-		progress.Message = strings.TrimSpace(parts[1])
-	}
-	if info, statErr := os.Stat(path); statErr == nil {
-		progress.UpdatedAt = info.ModTime().Unix()
-	}
-	return progress
+	return taskProgress{}
 }
 
 func validTaskState(value string) bool {

@@ -16,8 +16,8 @@ func (a *App) updatePanel(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	}
-	if a.readUpdateState() == "running" && !a.updateIsRunning() {
-		a.finishUpdate("failed", "上一更新任务未完成或已停止，请查看更新日志后重新尝试。")
+	if progress := a.readUpdateProgressDetail(); progress.State == "running" && !a.updateIsRunning() {
+		a.finishUpdateForRun(progress.RunID, "failed", "上一更新任务未完成或已停止，请查看更新日志后重新尝试。")
 	}
 	if a.updateIsRunning() {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "更新任务正在执行，请稍候"})
@@ -147,24 +147,8 @@ func (a *App) updateStateOlderThan(age time.Duration) bool {
 	return err == nil && time.Since(info.ModTime()) > age
 }
 
-func (a *App) writeUpdateState(state string) error { return a.writeUpdateProgress(state, "") }
-
-func (a *App) readUpdateState() string { return a.readUpdateProgressDetail().State }
-
-func (a *App) writeUpdateProgress(state, message string) error {
-	a.updateMu.Lock()
-	runID := a.updateRunID
-	a.updateMu.Unlock()
-	return a.writeUpdateProgressForRun(runID, state, message)
-}
-
 func (a *App) writeUpdateProgressForRun(runID, state, message string) error {
 	return writeTaskProgress(a.updateStatePath(), runID, state, message)
-}
-
-func (a *App) readUpdateProgress() (string, string) {
-	progress := a.readUpdateProgressDetail()
-	return progress.State, progress.Message
 }
 
 func (a *App) readUpdateProgressDetail() taskProgress {
@@ -175,13 +159,6 @@ func (a *App) setUpdateMessage(message string) {
 	a.updateMu.Lock()
 	a.updateMessage = message
 	a.updateMu.Unlock()
-}
-
-func (a *App) finishUpdate(state, message string) {
-	a.updateMu.Lock()
-	runID := a.updateRunID
-	a.updateMu.Unlock()
-	a.finishUpdateForRun(runID, state, message)
 }
 
 func (a *App) finishUpdateForRun(runID, state, message string) {
@@ -199,7 +176,7 @@ func (a *App) updateIsRunning() bool {
 	a.updateMu.Lock()
 	inMemory := a.updateRunning
 	a.updateMu.Unlock()
-	state := a.readUpdateState()
+	state := a.readUpdateProgressDetail().State
 	if state != "running" {
 		return inMemory
 	}

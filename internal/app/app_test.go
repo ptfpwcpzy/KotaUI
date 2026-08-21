@@ -251,11 +251,11 @@ func TestSubscriptionPageShowsMonthlyLimit(t *testing.T) {
 func TestPanelClientSubscriptionScriptUsesSlashSeparatedIdentifier(t *testing.T) {
 	a := testApp(t)
 	panel := request(t, a.Handler(), http.MethodGet, a.runtime.PanelPath, nil, nil)
-	if panel.Code != http.StatusOK || !strings.Contains(panel.Body.String(), `client-subscription.js?v=subid-slash1`) {
-		t.Fatalf("panel must load versioned client subscription script: %d", panel.Code)
+	if panel.Code != http.StatusOK || !strings.Contains(panel.Body.String(), `client-subscription.js`) || strings.Contains(panel.Body.String(), `client-subscription.js?`) {
+		t.Fatalf("panel must load the single subscription script without a query suffix: %d", panel.Code)
 	}
-	script := request(t, a.Handler(), http.MethodGet, "/assets/client-subscription.js?v=subid-slash1", nil, nil)
-	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''") || !strings.Contains(script.Body.String(), "item.id === clientID") || !strings.Contains(script.Body.String(), "item.username === clientID") {
+	script := request(t, a.Handler(), http.MethodGet, "/assets/client-subscription.js", nil, nil)
+	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''") || !strings.Contains(script.Body.String(), "item.username === username") || strings.Contains(script.Body.String(), "item.id === clientID") {
 		t.Fatalf("client subscription script does not use the unified identifier: %d %s", script.Code, script.Body.String())
 	}
 }
@@ -586,7 +586,7 @@ func TestUpdateStatusReadsPersistentState(t *testing.T) {
 	a := testApp(t)
 	cookie := login(t, a)
 	for state, wantRunning := range map[string]bool{"running": true, "success": false, "failed": false} {
-		if err := a.writeUpdateState(state); err != nil {
+		if err := a.writeUpdateProgressForRun("", state, ""); err != nil {
 			t.Fatal(err)
 		}
 		w := request(t, a.Handler(), http.MethodGet, "/api/update/status", nil, cookie)
@@ -606,7 +606,7 @@ func TestUpdateStatusReadsPersistentState(t *testing.T) {
 func TestUpdateStatusReturnsPersistentProgressMessage(t *testing.T) {
 	a := testApp(t)
 	cookie := login(t, a)
-	if err := a.writeUpdateProgress("running", "正在构建 KotaUI 面板程序…"); err != nil {
+	if err := a.writeUpdateProgressForRun("", "running", "正在构建 KotaUI 面板程序…"); err != nil {
 		t.Fatal(err)
 	}
 	w := request(t, a.Handler(), http.MethodGet, "/api/update/status", nil, cookie)

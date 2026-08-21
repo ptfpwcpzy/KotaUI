@@ -17,17 +17,6 @@ func TestTaskProgressRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTaskProgressReadsLegacyTwoLineStatus(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "task.status")
-	if err := os.WriteFile(path, []byte("failed\n旧版任务失败\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	got := readTaskProgress(path)
-	if got.RunID != "" || got.State != "failed" || got.Message != "旧版任务失败" || got.UpdatedAt == 0 {
-		t.Fatalf("unexpected legacy task progress: %#v", got)
-	}
-}
-
 func TestTaskProgressRejectsUnknownState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "task.status")
 	if err := os.WriteFile(path, []byte("paused\n不应被当作有效任务\n"), 0600); err != nil {
