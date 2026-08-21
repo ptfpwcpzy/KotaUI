@@ -846,10 +846,11 @@ func normalizeOutboundStrategy(value string) (string, error) {
 }
 
 func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
-	subscriptionID := strings.Trim(path.Base(r.URL.Path), "/")
 	a.resetMonth()
 	a.syncTraffic()
 	state := a.store.Snapshot()
+	prefix := config.NormalizePath(state.Settings.SubscriptionPath) + "/"
+	subscriptionID := strings.TrimPrefix(r.URL.Path, prefix)
 	var client config.Client
 	found := false
 	for _, value := range state.Clients {
@@ -868,7 +869,7 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	subscriptionURL := a.subscriptionBaseURL(state.Settings.SubscriptionPath) + "/" + subscriptionID
+	subscriptionURL := a.subscriptionBaseURL(state.Settings.SubscriptionPath) + "/" + clientSubscriptionID(client)
 	a.setSubscriptionHeaders(w, client, subscriptionURL)
 	if strings.Contains(strings.ToLower(r.Header.Get("user-agent")), "mozilla") {
 		w.Header().Set("content-type", "text/html; charset=utf-8")
@@ -1016,7 +1017,7 @@ func clientSubscriptionID(client config.Client) string {
 	if client.SubscriptionSuffix == "" {
 		return client.Username
 	}
-	return client.Username + "=" + client.SubscriptionSuffix
+	return client.Username + "/" + client.SubscriptionSuffix
 }
 
 func validateUniqueSubscriptionID(clients []config.Client, candidate config.Client, excludeID string) error {
@@ -1035,7 +1036,7 @@ func validateUniqueSubscriptionID(clients []config.Client, candidate config.Clie
 func uniqueSubscriptionSuffix(clients []config.Client, username string) (string, error) {
 	for range 32 {
 		suffix := config.RandomLetters(5)
-		candidate := username + "=" + suffix
+		candidate := username + "/" + suffix
 		used := false
 		for _, client := range clients {
 			if clientSubscriptionID(client) == candidate {

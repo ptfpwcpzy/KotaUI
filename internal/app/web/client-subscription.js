@@ -1,11 +1,12 @@
 /* Design reminder: client creation remains concise; subscription paths are randomized by default and expiry uses an explicit duration picker rather than a date calendar. */
 (() => {
   function subscriptionID(client) {
-    return `${client.username || ''}${client.subscriptionSuffix ? `=${client.subscriptionSuffix}` : ''}`;
+    const username = encodeURIComponent(client.username || '');
+    return `${username}${client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''}`;
   }
 
   function subscriptionLink(client) {
-    return `${window.dash.subscriptionBaseURL || ''}/${encodeURIComponent(subscriptionID(client))}`;
+    return `${window.dash.subscriptionBaseURL || ''}/${subscriptionID(client)}`;
   }
 
   function expiryPicker(existing) {
