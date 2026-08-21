@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -230,6 +231,33 @@ func TestSubscriptionPageShowsMonthlyLimit(t *testing.T) {
 		if !strings.Contains(page, text) {
 			t.Fatalf("subscription page missing %q", text)
 		}
+	}
+}
+
+func TestSubscriptionResponseAddsSingleTotalTrafficHint(t *testing.T) {
+	a := testApp(t)
+	if err := a.store.Update(func(state *config.State) error {
+		state.Inbounds = []config.Inbound{{ID: "hy2", Name: "hy2", Type: "hysteria2", Enabled: true, Port: 24443}}
+		state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}, UsedBytes: 3 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, ExpiresAt: "2026-09-18"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := request(t, a.Handler(), http.MethodGet, "/kota-sub/alice", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("subscription status = %d", w.Code)
+	}
+	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "ss://") || !strings.HasPrefix(lines[1], "hy2://") {
+		t.Fatalf("unexpected subscription lines: %#v", lines)
+	}
+	uri, err := url.Parse(lines[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uri.Host != "127.0.0.1:1" || uri.Fragment != "总流量 100.0 MB · 余 97.0 MB · 到期 2026-09-18" {
+		t.Fatalf("unexpected traffic hint: host=%q fragment=%q", uri.Host, uri.Fragment)
 	}
 }
 
@@ -465,6 +493,9 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	}
 	for _, line := range strings.Split(raw, "\n") {
 		if strings.HasPrefix(line, "ss://") {
+			if strings.Contains(line, "@127.0.0.1:1#") {
+				continue
+			}
 			want := "ss://2022-blake3-aes-256-gcm:" + ss.ServerPassword + ":" + client.Credentials[ids[2]] + "@"
 			if !strings.HasPrefix(line, want) {
 				t.Fatalf("invalid SS2022 SIP022 URI: %s", line)

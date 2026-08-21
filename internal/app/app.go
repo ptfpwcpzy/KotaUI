@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -875,7 +876,7 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("content-type", "text/plain; charset=utf-8")
-	_, _ = io.WriteString(w, links)
+	_, _ = io.WriteString(w, subscriptionTrafficHint(client)+"\n"+links)
 }
 
 func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client, subscriptionURL string) {
@@ -893,6 +894,28 @@ func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client
 	w.Header().Set("Profile-Title", "KotaUI · "+client.Username)
 	w.Header().Set("Profile-Update-Interval", "12")
 	w.Header().Set("Profile-Web-Page-Url", subscriptionURL)
+}
+
+// subscriptionTrafficHint is intentionally the only display-only subscription item.
+// Its loopback endpoint prevents traffic from being sent to an external server if it is selected by mistake.
+func subscriptionTrafficHint(client config.Client) string {
+	total := "不限"
+	remaining := "不限"
+	if client.TotalLimitBytes > 0 {
+		total = formatBytes(client.TotalLimitBytes)
+		left := client.TotalLimitBytes - client.UsedBytes
+		if left < 0 {
+			left = 0
+		}
+		remaining = formatBytes(left)
+	}
+	expires := client.ExpiresAt
+	if expires == "" {
+		expires = "不限"
+	}
+	label := "总流量 " + total + " · 余 " + remaining + " · 到期 " + expires
+	userinfo := base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:subscription-info"))
+	return "ss://" + userinfo + "@127.0.0.1:1#" + url.PathEscape(label)
 }
 
 func (a *App) subscriptionPage(client config.Client, linkCount int, subscriptionURL string) string {
