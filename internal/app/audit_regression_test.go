@@ -89,7 +89,7 @@ func TestSubscriptionRouteUsesConfiguredPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := request(t, a.Handler(), "GET", "/private-sub/alice", nil, nil)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "hysteria2://") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "hy2://") {
 		t.Fatalf("configured subscription route failed: %d %q", w.Code, w.Body.String())
 	}
 }

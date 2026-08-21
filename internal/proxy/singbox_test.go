@@ -47,8 +47,20 @@ func TestHysteriaSubscriptionCarriesObfsParameters(t *testing.T) {
 	state.Inbounds = []config.Inbound{{ID: "hy2", Name: "hy2", Type: "hysteria2", Enabled: true, Port: 24443, ObfsPassword: "obfs-secret"}}
 	state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}}}
 	link, ok := Subscription(state, config.Runtime{Domain: "example.test"}, "alice")
-	if !ok || !strings.Contains(link, "obfs=salamander") || !strings.Contains(link, "obfs-password=obfs-secret") {
+	if !ok || !strings.HasPrefix(link, "hy2://client-secret@example.test:24443/") || !strings.Contains(link, "obfs=salamander") || !strings.Contains(link, "obfs-password=obfs-secret") {
 		t.Fatalf("unexpected Hysteria subscription: %q", link)
+	}
+}
+
+func TestSS2022SubscriptionUsesLiteralSIP022Userinfo(t *testing.T) {
+	state := config.DefaultState("example.test")
+	state.Inbounds = []config.Inbound{{ID: "ss", Name: "ss", Type: "shadowsocks2022", Enabled: true, Port: 24443, ServerPassword: "server/key+"}}
+	state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"ss"}, Credentials: map[string]string{"ss": "user/key+"}}}
+
+	link, ok := Subscription(state, config.Runtime{Domain: "example.test"}, "alice")
+	wantPrefix := "ss://2022-blake3-aes-256-gcm:server%2Fkey%2B:user%2Fkey%2B@example.test:24443"
+	if !ok || !strings.HasPrefix(link, wantPrefix) {
+		t.Fatalf("SS2022 subscription = %q, want prefix %q", link, wantPrefix)
 	}
 }
 

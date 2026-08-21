@@ -113,7 +113,7 @@ func TestInboundClientAndSubscription(t *testing.T) {
 		t.Fatalf("predictable subscription path should not work: %d", w.Code)
 	}
 	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(saved), nil, nil)
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "hysteria2://") {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "hy2://") {
 		t.Fatalf("subscription: %d %s", w.Code, w.Body.String())
 	}
 	directClient := map[string]any{"username": "bob", "subscriptionSuffix": "forced", "randomSubscriptionSuffix": false, "inboundIds": []string{created.ID}}
@@ -460,16 +460,14 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	}
 	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(a.store.Snapshot().Clients[0]), nil, nil)
 	raw := w.Body.String()
-	if w.Code != http.StatusOK || !strings.Contains(raw, "vless://") || !strings.Contains(raw, "hysteria2://") || !strings.Contains(raw, "ss://") {
+	if w.Code != http.StatusOK || !strings.Contains(raw, "vless://") || !strings.Contains(raw, "hy2://") || !strings.Contains(raw, "ss://") {
 		t.Fatalf("raw subscription: %d %s", w.Code, raw)
 	}
 	for _, line := range strings.Split(raw, "\n") {
 		if strings.HasPrefix(line, "ss://") {
-			encoded := line[len("ss://"):strings.Index(line, "@")]
-			decoded, err := base64.RawStdEncoding.DecodeString(encoded)
-			parts := strings.SplitN(string(decoded), ":", 3)
-			if err != nil || len(parts) != 3 || parts[0] != "2022-blake3-aes-256-gcm" || parts[1] != ss.ServerPassword || parts[2] != client.Credentials[ids[2]] {
-				t.Fatalf("invalid SS2022 multi-user URI encoding: %s", line)
+			want := "ss://2022-blake3-aes-256-gcm:" + ss.ServerPassword + ":" + client.Credentials[ids[2]] + "@"
+			if !strings.HasPrefix(line, want) {
+				t.Fatalf("invalid SS2022 SIP022 URI: %s", line)
 			}
 		}
 	}

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -170,7 +169,8 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 				} else {
 					query.Set("obfs", "none")
 				}
-				links = append(links, fmt.Sprintf("hysteria2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
+				// NekoBox recognizes the official short Hysteria2 scheme, hy2://.
+				links = append(links, fmt.Sprintf("hy2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "tuic":
 				password := client.TUICPasswords[id]
 				if password == "" {
@@ -179,9 +179,13 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 				query := url.Values{"alpn": []string{"h3"}, "congestion_control": []string{"cubic"}, "udp_relay_mode": []string{"native"}, "sni": []string{runtime.Domain}, "allow_insecure": []string{"0"}}
 				links = append(links, fmt.Sprintf("tuic://%s:%s@%s:%d?%s#%s", url.PathEscape(secret), url.PathEscape(password), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
 			case "shadowsocks2022":
-				// SS2022 multi-user mode requires the server EIH key followed by the user key.
-				encoded := base64.RawStdEncoding.EncodeToString([]byte("2022-blake3-aes-256-gcm:" + inbound.ServerPassword + ":" + secret))
-				links = append(links, fmt.Sprintf("ss://%s@%s:%d#%s", encoded, shareHost(inbound, runtime), inbound.Port, url.QueryEscape(label)))
+				// SIP022 / SS2022 userinfo is literal method:server-key:user-key, not legacy Base64 userinfo.
+				userInfo := strings.Join([]string{
+					url.QueryEscape("2022-blake3-aes-256-gcm"),
+					url.QueryEscape(inbound.ServerPassword),
+					url.QueryEscape(secret),
+				}, ":")
+				links = append(links, fmt.Sprintf("ss://%s@%s:%d#%s", userInfo, shareHost(inbound, runtime), inbound.Port, url.QueryEscape(label)))
 
 			}
 		}
