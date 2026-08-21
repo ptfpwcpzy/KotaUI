@@ -1,7 +1,7 @@
 /* Design reminder: client creation remains concise; subscription paths are randomized by default and expiry uses an explicit duration picker rather than a date calendar. */
 (() => {
   function subscriptionID(client) {
-    return `${client.username || ''}${client.subscriptionSuffix || ''}`;
+    return `${client.username || ''}${client.subscriptionSuffix ? `=${client.subscriptionSuffix}` : ''}`;
   }
 
   function subscriptionLink(client) {
@@ -52,11 +52,11 @@
     const client = (window.state.clients || []).find((item) => item.id === id);
     if (!client) return;
     const link = subscriptionLink(client);
-    window.openModal(`<h2>${window.esc(client.username)}</h2><p class="sub">客户端详情</p><div class="detail-grid"><div><span>绑定入站</span><b>${client.inboundIds.length} 个</b></div><div><span>状态</span><b class="${client.paused ? 'red' : 'green'}">${client.paused ? '已暂停' : '正常'}</b></div><div><span>累计流量</span><b>${window.bytes(client.usedBytes)} / ${client.totalLimitBytes ? window.bytes(client.totalLimitBytes) : '不限'}</b></div><div><span>累计上传 / 下载</span><b>↑ ${window.bytes(client.uploadBytes)} · ↓ ${window.bytes(client.downloadBytes)}</b></div><div><span>本月流量</span><b>${window.bytes(client.monthlyUsedBytes)} / ${client.monthlyLimitBytes ? window.bytes(client.monthlyLimitBytes) : '不限'}</b></div><div><span>有效期</span><b>${window.esc(client.expiresAt || '不限')}</b></div><div><span>在线 IP 限制</span><b>${client.maxOnlineIps || '不限'}</b></div></div><div class="subscription" id="subLink">${window.esc(link)}</div><div class="item-actions" style="margin-top:14px"><button class="alt" onclick="copySub()">复制订阅</button><button class="alt" onclick="openSubscription('${window.esc(client.username)}')">查看订阅</button><button class="alt" onclick="clientAction('${client.id}','${client.paused ? 'resume' : 'pause'}')">${client.paused ? '恢复' : '暂停'}</button><button class="alt" onclick="clientAction('${client.id}','reset')">重置流量</button><button class="danger" onclick="clientAction('${client.id}','delete')">删除</button></div><div class="dialog-actions"><button class="alt" onclick="closeModal()">关闭</button></div>`);
+    window.openModal(`<h2>${window.esc(client.username)}</h2><p class="sub">客户端详情</p><div class="detail-grid"><div><span>绑定入站</span><b>${client.inboundIds.length} 个</b></div><div><span>状态</span><b class="${client.paused ? 'red' : 'green'}">${client.paused ? '已暂停' : '正常'}</b></div><div><span>累计流量</span><b>${window.bytes(client.usedBytes)} / ${client.totalLimitBytes ? window.bytes(client.totalLimitBytes) : '不限'}</b></div><div><span>累计上传 / 下载</span><b>↑ ${window.bytes(client.uploadBytes)} · ↓ ${window.bytes(client.downloadBytes)}</b></div><div><span>本月流量</span><b>${window.bytes(client.monthlyUsedBytes)} / ${client.monthlyLimitBytes ? window.bytes(client.monthlyLimitBytes) : '不限'}</b></div><div><span>有效期</span><b>${window.esc(client.expiresAt || '不限')}</b></div><div><span>在线 IP 限制</span><b>${client.maxOnlineIps || '不限'}</b></div></div><div class="subscription" id="subLink">${window.esc(link)}</div><div class="item-actions" style="margin-top:14px"><button class="alt" onclick="copySub()">复制订阅</button><button class="alt" onclick="openSubscription('${client.id}')">查看订阅</button><button class="alt" onclick="clientAction('${client.id}','${client.paused ? 'resume' : 'pause'}')">${client.paused ? '恢复' : '暂停'}</button><button class="alt" onclick="clientAction('${client.id}','reset')">重置流量</button><button class="danger" onclick="clientAction('${client.id}','delete')">删除</button></div><div class="dialog-actions"><button class="alt" onclick="closeModal()">关闭</button></div>`);
   };
 
-  window.openSubscription = function openSubscription(username) {
-    const client = (window.state.clients || []).find((item) => item.username === username);
+  window.openSubscription = function openSubscription(clientID) {
+    const client = (window.state.clients || []).find((item) => item.id === clientID);
     if (!client) {
       window.toast('未找到客户端订阅地址');
       return;

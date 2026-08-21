@@ -241,6 +241,18 @@ func TestSubscriptionPageShowsMonthlyLimit(t *testing.T) {
 	}
 }
 
+func TestPanelClientSubscriptionScriptUsesEqualsSeparatedIdentifier(t *testing.T) {
+	a := testApp(t)
+	panel := request(t, a.Handler(), http.MethodGet, a.runtime.PanelPath, nil, nil)
+	if panel.Code != http.StatusOK || !strings.Contains(panel.Body.String(), `client-subscription.js?v=subid-eq1`) {
+		t.Fatalf("panel must load versioned client subscription script: %d", panel.Code)
+	}
+	script := request(t, a.Handler(), http.MethodGet, "/assets/client-subscription.js?v=subid-eq1", nil, nil)
+	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "client.subscriptionSuffix ? `=${client.subscriptionSuffix}` : ''") || !strings.Contains(script.Body.String(), "item.id === clientID") {
+		t.Fatalf("client subscription script does not use the unified identifier: %d %s", script.Code, script.Body.String())
+	}
+}
+
 func TestSubscriptionResponseAddsSingleTotalTrafficHint(t *testing.T) {
 	a := testApp(t)
 	if err := a.store.Update(func(state *config.State) error {
