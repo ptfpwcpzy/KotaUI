@@ -110,12 +110,19 @@ func TestInboundClientAndSubscription(t *testing.T) {
 	if len(saved.SubscriptionSuffix) != 5 || strings.Trim(saved.SubscriptionSuffix, "abcdefghijklmnopqrstuvwxyz") != "" {
 		t.Fatalf("unexpected subscription suffix: %q", saved.SubscriptionSuffix)
 	}
+	if !strings.HasPrefix(clientSubscriptionID(saved), saved.Username+"=") {
+		t.Fatalf("subscription address must use equals separator: %q", clientSubscriptionID(saved))
+	}
 	if w = request(t, h, http.MethodGet, "/kota-sub/alice", nil, nil); w.Code != http.StatusNotFound {
 		t.Fatalf("predictable subscription path should not work: %d", w.Code)
 	}
 	w = request(t, h, http.MethodGet, "/kota-sub/"+clientSubscriptionID(saved), nil, nil)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "hy2://") {
 		t.Fatalf("subscription: %d %s", w.Code, w.Body.String())
+	}
+	w = request(t, h, http.MethodGet, "/kota-sub/"+saved.Username+saved.SubscriptionSuffix, nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("legacy subscription path: %d", w.Code)
 	}
 	directClient := map[string]any{"username": "bob", "subscriptionSuffix": "forced", "randomSubscriptionSuffix": false, "inboundIds": []string{created.ID}}
 	w = request(t, h, http.MethodPost, "/api/clients", directClient, c)
@@ -202,7 +209,7 @@ func TestRejectsSubscriptionIDCollision(t *testing.T) {
 		t.Fatalf("create first client: %d %s", w.Code, w.Body.String())
 	}
 	first := a.store.Snapshot().Clients[0]
-	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": clientSubscriptionID(first), "randomSubscriptionSuffix": false, "inboundIds": []string{inbound.ID}}, cookie)
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": first.Username + first.SubscriptionSuffix, "randomSubscriptionSuffix": false, "inboundIds": []string{inbound.ID}}, cookie)
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "订阅地址与已有客户端冲突") {
 		t.Fatalf("subscription collision should be rejected: %d %s", w.Code, w.Body.String())
 	}
