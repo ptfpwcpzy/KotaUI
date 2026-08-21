@@ -255,7 +255,7 @@ func TestPanelClientSubscriptionScriptUsesSlashSeparatedIdentifier(t *testing.T)
 		t.Fatalf("panel must load versioned client subscription script: %d", panel.Code)
 	}
 	script := request(t, a.Handler(), http.MethodGet, "/assets/client-subscription.js?v=subid-slash1", nil, nil)
-	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''") || !strings.Contains(script.Body.String(), "item.id === clientID") {
+	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''") || !strings.Contains(script.Body.String(), "item.id === clientID") || !strings.Contains(script.Body.String(), "item.username === clientID") {
 		t.Fatalf("client subscription script does not use the unified identifier: %d %s", script.Code, script.Body.String())
 	}
 }

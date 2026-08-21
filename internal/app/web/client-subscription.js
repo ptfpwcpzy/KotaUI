@@ -57,7 +57,8 @@
   };
 
   window.openSubscription = function openSubscription(clientID) {
-    const client = (window.state.clients || []).find((item) => item.id === clientID);
+    const clients = window.state.clients || [];
+    const client = clients.find((item) => item.id === clientID) || clients.find((item) => item.username === clientID);
     if (!client) {
       window.toast('未找到客户端订阅地址');
       return;
