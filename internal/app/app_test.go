@@ -121,8 +121,8 @@ func TestInboundClientAndSubscription(t *testing.T) {
 		t.Fatalf("subscription: %d %s", w.Code, w.Body.String())
 	}
 	w = request(t, h, http.MethodGet, "/kota-sub/"+saved.Username+saved.SubscriptionSuffix, nil, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("legacy subscription path: %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("legacy subscription path should not work: %d", w.Code)
 	}
 	directClient := map[string]any{"username": "bob", "subscriptionSuffix": "forced", "randomSubscriptionSuffix": false, "inboundIds": []string{created.ID}}
 	w = request(t, h, http.MethodPost, "/api/clients", directClient, c)
@@ -195,7 +195,7 @@ func TestRealityClientUsesUUIDCredentials(t *testing.T) {
 	}
 }
 
-func TestRejectsSubscriptionIDCollision(t *testing.T) {
+func TestAllowsLegacyConcatenationAsNewSubscriptionID(t *testing.T) {
 	a := testApp(t)
 	h, cookie := a.Handler(), login(t, a)
 	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "hy2", "type": "hysteria2", "port": 24443, "sni": "example.test", "upMbps": 50, "downMbps": 200}, cookie)
@@ -210,8 +210,8 @@ func TestRejectsSubscriptionIDCollision(t *testing.T) {
 	}
 	first := a.store.Snapshot().Clients[0]
 	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": first.Username + first.SubscriptionSuffix, "randomSubscriptionSuffix": false, "inboundIds": []string{inbound.ID}}, cookie)
-	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "订阅地址与已有客户端冲突") {
-		t.Fatalf("subscription collision should be rejected: %d %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("legacy concatenation should be available as a new ID: %d %s", w.Code, w.Body.String())
 	}
 }
 func TestNormalizeRealityCandidates(t *testing.T) {

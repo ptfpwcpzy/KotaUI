@@ -853,7 +853,7 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 	var client config.Client
 	found := false
 	for _, value := range state.Clients {
-		if matchesSubscriptionID(value, subscriptionID) {
+		if clientSubscriptionID(value) == subscriptionID {
 			client = value
 			found = true
 			break
@@ -1020,11 +1020,12 @@ func clientSubscriptionID(client config.Client) string {
 }
 
 func validateUniqueSubscriptionID(clients []config.Client, candidate config.Client, excludeID string) error {
-	if len(subscriptionIDs(candidate)) == 0 {
+	identifier := clientSubscriptionID(candidate)
+	if identifier == "" {
 		return errors.New("订阅标识不能为空")
 	}
 	for _, client := range clients {
-		if client.ID != excludeID && subscriptionIDsOverlap(client, candidate) {
+		if client.ID != excludeID && clientSubscriptionID(client) == identifier {
 			return errors.New("订阅地址与已有客户端冲突，请修改用户名后重试")
 		}
 	}
@@ -1034,10 +1035,10 @@ func validateUniqueSubscriptionID(clients []config.Client, candidate config.Clie
 func uniqueSubscriptionSuffix(clients []config.Client, username string) (string, error) {
 	for range 32 {
 		suffix := config.RandomLetters(5)
-		candidate := config.Client{Username: username, SubscriptionSuffix: suffix}
+		candidate := username + "=" + suffix
 		used := false
 		for _, client := range clients {
-			if subscriptionIDsOverlap(client, candidate) {
+			if clientSubscriptionID(client) == candidate {
 				used = true
 				break
 			}
@@ -1047,34 +1048,6 @@ func uniqueSubscriptionSuffix(clients []config.Client, username string) (string,
 		}
 	}
 	return "", errors.New("无法生成唯一订阅标识，请重试")
-}
-
-func matchesSubscriptionID(client config.Client, identifier string) bool {
-	for _, value := range subscriptionIDs(client) {
-		if value == identifier {
-			return true
-		}
-	}
-	return false
-}
-
-func subscriptionIDs(client config.Client) []string {
-	if client.Username == "" {
-		return nil
-	}
-	if client.SubscriptionSuffix == "" {
-		return []string{client.Username}
-	}
-	return []string{clientSubscriptionID(client), client.Username + client.SubscriptionSuffix}
-}
-
-func subscriptionIDsOverlap(left, right config.Client) bool {
-	for _, leftID := range subscriptionIDs(left) {
-		if matchesSubscriptionID(right, leftID) {
-			return true
-		}
-	}
-	return false
 }
 
 func (a *App) prepareRealityInbound(v *config.Inbound) error {
