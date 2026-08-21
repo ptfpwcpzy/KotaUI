@@ -115,6 +115,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/assets/client-expiry.css", embeddedAsset("web/client-expiry.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.css", embeddedAsset("web/tuic.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.js", embeddedAsset("web/tuic.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/assets/kotaui-logo.png", embeddedAsset("web/kotaui-logo.png", "image/png"))
+	mux.HandleFunc("/favicon.ico", embeddedAsset("web/kotaui-logo.png", "image/png"))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -144,9 +146,7 @@ func (a *App) syncTrafficLoop() {
 }
 
 func (a *App) ServeSubscription() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc(a.store.Snapshot().Settings.SubscriptionPath+"/", a.subscription)
-	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", a.runtime.SubscriptionPort), Handler: mux, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", a.runtime.SubscriptionPort), Handler: a.subscriptionHandler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}
 	if a.runtime.TLSCert != "" && a.runtime.TLSKey != "" {
 		if _, err := os.Stat(a.runtime.TLSCert); err == nil {
 			return server.ListenAndServeTLS(a.runtime.TLSCert, a.runtime.TLSKey)
@@ -155,10 +155,25 @@ func (a *App) ServeSubscription() error {
 	return server.ListenAndServe()
 }
 
+func (a *App) subscriptionHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc(a.store.Snapshot().Settings.SubscriptionPath+"/", a.subscription)
+	mux.HandleFunc("/assets/kotaui-logo.png", embeddedAsset("web/kotaui-logo.png", "image/png"))
+	mux.HandleFunc("/favicon.ico", embeddedAsset("web/kotaui-logo.png", "image/png"))
+	return mux
+}
+
 func (a *App) panel(w http.ResponseWriter, _ *http.Request) {
 	body, _ := files.ReadFile("web/index.html")
 	w.Header().Set("content-type", "text/html; charset=utf-8")
 	_, _ = w.Write(body)
+}
+
+func subscriptionBrandLogo(page string) string {
+	const icon = "/assets/kotaui-logo.png"
+	page = strings.Replace(page, "<title>KotaUI 订阅</title>", `<title>KotaUI 订阅</title><link rel="icon" href="`+icon+`" type="image/png">`, 1)
+	page = strings.Replace(page, "</style>", `.logo{background:#fff!important;border:1px solid #e4ebf4;padding:6px}.logo:after,.logo svg{display:none!important}.logo img{display:block;width:100%;height:100%;object-fit:contain}</style>`, 1)
+	return strings.Replace(page, `<div class="logo">`, `<div class="logo"><img src="`+icon+`" alt="KotaUI">`, 1)
 }
 
 func embeddedAsset(name, contentType string) http.HandlerFunc {
@@ -855,7 +870,7 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 	a.setSubscriptionHeaders(w, client, subscriptionURL)
 	if strings.Contains(strings.ToLower(r.Header.Get("user-agent")), "mozilla") {
 		w.Header().Set("content-type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, a.subscriptionPage(client, strings.Count(links, "\n")+1, subscriptionURL))
+		_, _ = io.WriteString(w, subscriptionBrandLogo(a.subscriptionPage(client, strings.Count(links, "\n")+1, subscriptionURL)))
 		return
 	}
 	w.Header().Set("content-type", "text/plain; charset=utf-8")

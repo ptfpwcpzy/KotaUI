@@ -477,7 +477,7 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	browser.Header.Set("user-agent", "Mozilla/5.0")
 	page := httptest.NewRecorder()
 	h.ServeHTTP(page, browser)
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "KotaUI") || !strings.Contains(page.Body.String(), "连接正常") || !strings.Contains(page.Body.String(), "viewBox") || strings.Contains(page.Body.String(), "vless://") {
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "KotaUI") || !strings.Contains(page.Body.String(), "连接正常") || !strings.Contains(page.Body.String(), `kotaui-logo.png`) || strings.Contains(page.Body.String(), "vless://") {
 		t.Fatalf("browser subscription page: %d %s", page.Code, page.Body.String())
 	}
 }
