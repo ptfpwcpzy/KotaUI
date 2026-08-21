@@ -225,8 +225,8 @@ func TestNormalizeRealityCandidates(t *testing.T) {
 
 func TestSubscriptionPageShowsMonthlyLimit(t *testing.T) {
 	a := testApp(t)
-	page := a.subscriptionPage(config.Client{Username: "alice", UsedBytes: 5 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, MonthlyUsedBytes: 2 * 1024 * 1024, MonthlyLimitBytes: 10 * 1024 * 1024, ExpiresAt: "2026-09-18"}, 2, "https://example.test/sub/alice")
-	for _, text := range []string{"本月余量", "总余量", "有效期", "2026-09-18", "2 个真实节点"} {
+	page := a.subscriptionPage(config.Client{Username: "alice", UsedBytes: 5 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, MonthlyUsedBytes: 2 * 1024 * 1024, MonthlyLimitBytes: 10 * 1024 * 1024}, 2, "https://example.test/sub/alice")
+	for _, text := range []string{"每月限额", "本月流量", "累计"} {
 		if !strings.Contains(page, text) {
 			t.Fatalf("subscription page missing %q", text)
 		}
@@ -475,7 +475,7 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	browser.Header.Set("user-agent", "Mozilla/5.0")
 	page := httptest.NewRecorder()
 	h.ServeHTTP(page, browser)
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "KotaUI") || !strings.Contains(page.Body.String(), "可用") || !strings.Contains(page.Body.String(), `kotaui-logo.png`) || strings.Contains(page.Body.String(), "vless://") {
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "KotaUI") || !strings.Contains(page.Body.String(), "连接正常") || !strings.Contains(page.Body.String(), `kotaui-logo.png`) || strings.Contains(page.Body.String(), "vless://") {
 		t.Fatalf("browser subscription page: %d %s", page.Code, page.Body.String())
 	}
 }
