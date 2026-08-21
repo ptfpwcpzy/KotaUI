@@ -895,7 +895,7 @@ func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client
 	w.Header().Set("Profile-Web-Page-Url", subscriptionURL)
 }
 
-func (a *App) subscriptionPage(client config.Client, linkCount int, subscriptionURL string) string {
+func (a *App) legacySubscriptionPage(client config.Client, linkCount int, subscriptionURL string) string {
 	limit := "无限制"
 	if client.TotalLimitBytes > 0 {
 		limit = formatBytes(client.TotalLimitBytes)
