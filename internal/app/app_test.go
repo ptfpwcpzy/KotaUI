@@ -256,8 +256,25 @@ func TestSubscriptionResponseAddsSingleTotalTrafficHint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if uri.Host != "127.0.0.1:1" || uri.Fragment != "总流量 100.0 MB · 余 97.0 MB · 到期 2026-09-18" {
+	if uri.Host != "127.0.0.1:1" || uri.Fragment != "总:100.0 MB 余:97.0 MB 到期:2026-09-18" {
 		t.Fatalf("unexpected traffic hint: host=%q fragment=%q", uri.Host, uri.Fragment)
+	}
+}
+
+func TestSubscriptionTrafficHintPrefersMonthlyLimit(t *testing.T) {
+	hint := subscriptionTrafficHint(config.Client{
+		TotalLimitBytes:   1000 * 1024 * 1024,
+		UsedBytes:         333 * 1024 * 1024,
+		MonthlyLimitBytes: 100 * 1024 * 1024,
+		MonthlyUsedBytes:  2 * 1024 * 1024,
+		ExpiresAt:         "2026-09-18",
+	})
+	uri, err := url.Parse(hint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uri.Fragment != "月:100.0 MB 余:98.0 MB 到期:2026-09-18" {
+		t.Fatalf("monthly traffic hint = %q", uri.Fragment)
 	}
 }
 

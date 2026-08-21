@@ -899,11 +899,20 @@ func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client
 // subscriptionTrafficHint is intentionally the only display-only subscription item.
 // Its loopback endpoint prevents traffic from being sent to an external server if it is selected by mistake.
 func subscriptionTrafficHint(client config.Client) string {
+	quotaKind := "总"
+	quotaLimit := client.TotalLimitBytes
+	quotaUsed := client.UsedBytes
+	if client.MonthlyLimitBytes > 0 {
+		quotaKind = "月"
+		quotaLimit = client.MonthlyLimitBytes
+		quotaUsed = client.MonthlyUsedBytes
+	}
+
 	total := "不限"
 	remaining := "不限"
-	if client.TotalLimitBytes > 0 {
-		total = formatBytes(client.TotalLimitBytes)
-		left := client.TotalLimitBytes - client.UsedBytes
+	if quotaLimit > 0 {
+		total = formatBytes(quotaLimit)
+		left := quotaLimit - quotaUsed
 		if left < 0 {
 			left = 0
 		}
@@ -913,7 +922,7 @@ func subscriptionTrafficHint(client config.Client) string {
 	if expires == "" {
 		expires = "不限"
 	}
-	label := "总流量 " + total + " · 余 " + remaining + " · 到期 " + expires
+	label := quotaKind + ":" + total + " 余:" + remaining + " 到期:" + expires
 	userinfo := base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:subscription-info"))
 	return "ss://" + userinfo + "@127.0.0.1:1#" + url.PathEscape(label)
 }
