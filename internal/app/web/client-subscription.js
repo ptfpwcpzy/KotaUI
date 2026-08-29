@@ -2,7 +2,8 @@
 (() => {
   function subscriptionID(client) {
     const username = encodeURIComponent(client.username || '');
-    return `${username}${client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''}`;
+    if (!client.subscriptionSuffix) return username;
+    return `${encodeURIComponent(client.subscriptionSuffix)}/${username}`;
   }
 
   function subscriptionLink(client) {
@@ -23,7 +24,7 @@
       window.go('inbounds');
       return;
     }
-    const randomOption = existing ? '' : `<div class="access-toggle"><div><b>随机订阅标识</b><small>默认启用：在订阅地址末尾加入 5 位随机字母，避免仅凭用户名猜测地址。</small></div><label class="switch" title="随机订阅标识"><input type="checkbox" name="randomSubscriptionSuffix" checked><span></span></label></div>`;
+    const randomOption = existing ? '' : `<div class="access-toggle"><div><b>随机订阅标识</b><small>默认启用：在订阅路径中加入 5 位随机字母，避免仅凭用户名猜测地址。</small></div><label class="switch" title="随机订阅标识"><input type="checkbox" name="randomSubscriptionSuffix" checked><span></span></label></div>`;
     window.openModal(`<h2>${existing ? '编辑客户端' : '新增客户端'}</h2><p class="sub">${existing ? '修改入站、流量、期限与在线限制；订阅标识将保持不变。' : '创建后会立即显示订阅地址与使用信息。'}</p><form id="clientForm" class="fields"><label>用户名<input name="username" required pattern="[A-Za-z0-9_-]{3,32}" value="${window.esc(existing?.username || '')}" placeholder="3–32 位字母、数字、下划线或连字符"></label><label class="full">绑定入站<div class="badges" style="margin-top:7px">${enabled.map((inbound) => `<label class="badge"><input type="checkbox" name="inbound" value="${inbound.id}" ${!existing || existing.inboundIds.includes(inbound.id) ? 'checked' : ''} style="width:auto;margin:0 5px 0 0"> ${window.esc(inbound.name)} · ${window.esc(window.protocolName(inbound.type))}</label>`).join('')}</div></label>${randomOption}<label>总流量上限（GiB，0 为不限）<input name="total" type="number" min="0" value="${existing ? ((existing.totalLimitBytes || 0) / 1073741824) : 0}"></label><label>自然月流量（GiB，0 为不限）<input name="monthly" type="number" min="0" value="${existing ? ((existing.monthlyLimitBytes || 0) / 1073741824) : 0}"></label>${expiryPicker(existing)}<label>同时在线 IP 数 <span class="sub">0 为不限</span><input name="maxOnlineIps" type="number" min="0" value="${existing?.maxOnlineIps || 0}"></label></form><div class="dialog-actions"><button class="alt" onclick="closeModal()">取消</button><button class="primary" onclick="document.querySelector('#clientForm').requestSubmit()">${existing ? '保存修改' : '创建客户端'}</button></div>`);
     document.querySelector('#clientForm').onsubmit = async (event) => {
       event.preventDefault();

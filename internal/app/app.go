@@ -1017,7 +1017,7 @@ func clientSubscriptionID(client config.Client) string {
 	if client.SubscriptionSuffix == "" {
 		return client.Username
 	}
-	return client.Username + "/" + client.SubscriptionSuffix
+	return client.SubscriptionSuffix + "/" + client.Username
 }
 
 func validateUniqueSubscriptionID(clients []config.Client, candidate config.Client, excludeID string) error {

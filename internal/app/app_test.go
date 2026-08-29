@@ -110,9 +110,9 @@ func TestInboundClientAndSubscription(t *testing.T) {
 	if len(saved.SubscriptionSuffix) != 5 || strings.Trim(saved.SubscriptionSuffix, "abcdefghijklmnopqrstuvwxyz") != "" {
 		t.Fatalf("unexpected subscription suffix: %q", saved.SubscriptionSuffix)
 	}
-	if !strings.HasPrefix(clientSubscriptionID(saved), saved.Username+"/") {
-		t.Fatalf("subscription address must use slash separator: %q", clientSubscriptionID(saved))
-	}
+		if !strings.HasPrefix(clientSubscriptionID(saved), saved.SubscriptionSuffix+"/") {
+			t.Fatalf("subscription address must use suffix-first path: %q", clientSubscriptionID(saved))
+		}
 	if w = request(t, h, http.MethodGet, "/kota-sub/alice", nil, nil); w.Code != http.StatusNotFound {
 		t.Fatalf("predictable subscription path should not work: %d", w.Code)
 	}
@@ -255,8 +255,8 @@ func TestPanelClientSubscriptionScriptUsesSlashSeparatedIdentifier(t *testing.T)
 		t.Fatalf("panel must load the single subscription script without a query suffix: %d", panel.Code)
 	}
 	script := request(t, a.Handler(), http.MethodGet, "/assets/client-subscription.js", nil, nil)
-	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "client.subscriptionSuffix ? `/${encodeURIComponent(client.subscriptionSuffix)}` : ''") || !strings.Contains(script.Body.String(), "item.username === username") || strings.Contains(script.Body.String(), "item.id === clientID") {
-		t.Fatalf("client subscription script does not use the unified identifier: %d %s", script.Code, script.Body.String())
+	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "if (!client.subscriptionSuffix) return username;") || !strings.Contains(script.Body.String(), "return `${encodeURIComponent(client.subscriptionSuffix)}/${username}`;") || !strings.Contains(script.Body.String(), "item.username === username") {
+		t.Fatalf("client subscription script does not use the suffix-first identifier: %d %s", script.Code, script.Body.String())
 	}
 }
 
