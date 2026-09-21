@@ -67,7 +67,7 @@
       let segment = [];
       const flush = () => {
         const path = smoothPath(segment);
-        if (path) svg += `<path d="${path}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+        if (path) svg += `<path d="${path}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round"/>`;
         segment = [];
       };
       points.forEach(sample => {
