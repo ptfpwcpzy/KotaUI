@@ -18,7 +18,18 @@
     return pingData.samples.filter(sample => sample.targetId === id).sort((a, b) => new Date(b.checkedAt) - new Date(a.checkedAt))[0];
   }
 
+  function smoothPoints(points) {
+    if (points.length < 3) return points;
+    return points.map((point, index) => {
+      if (index === 0 || index === points.length - 1) return point;
+      const previous = points[index - 1];
+      const next = points[index + 1];
+      return [point[0], (previous[1] + point[1] * 2 + next[1]) / 4];
+    });
+  }
+
   function smoothPath(points) {
+    points = smoothPoints(points);
     if (points.length < 2) return points.length ? `M${points[0][0]},${points[0][1]}` : '';
     let path = `M${points[0][0]},${points[0][1]}`;
     for (let i = 0; i < points.length - 1; i++) {
@@ -26,10 +37,10 @@
       const p1 = points[i];
       const p2 = points[i + 1];
       const p3 = points[i + 2] || p2;
-      const c1x = p1[0] + (p2[0] - p0[0]) / 6;
-      const c1y = p1[1] + (p2[1] - p0[1]) / 6;
-      const c2x = p2[0] - (p3[0] - p1[0]) / 6;
-      const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      const c1x = p1[0] + (p2[0] - p0[0]) / 4;
+      const c1y = p1[1] + (p2[1] - p0[1]) / 4;
+      const c2x = p2[0] - (p3[0] - p1[0]) / 4;
+      const c2y = p2[1] - (p3[1] - p1[1]) / 4;
       path += ` C${c1x},${c1y} ${c2x},${c2y} ${p2[0]},${p2[1]}`;
     }
     return path;
