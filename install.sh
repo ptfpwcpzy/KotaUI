@@ -133,8 +133,8 @@ install_packages(){
   . /etc/os-release 2>/dev/null || true
   step '4 / 6' '安装轻量运行环境与 sing-box 核心'
   case "${ID:-}" in
-    alpine) apk add --no-cache ca-certificates curl git go certbot openssl python3 py3-pip py3-virtualenv; apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community sing-box ;;
-    debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl python3 python3-venv python3-pip; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
+    alpine) apk add --no-cache ca-certificates curl git go certbot openssl iputils python3 py3-pip py3-virtualenv; apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community sing-box ;;
+    debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl iputils-ping python3 python3-venv python3-pip; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
     *) fail '当前仅支持 Alpine、Debian 和 Ubuntu。';;
   esac
   ok '运行环境与 sing-box 核心已准备。'

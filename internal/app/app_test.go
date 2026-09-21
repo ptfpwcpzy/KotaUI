@@ -110,9 +110,9 @@ func TestInboundClientAndSubscription(t *testing.T) {
 	if len(saved.SubscriptionSuffix) != 5 || strings.Trim(saved.SubscriptionSuffix, "abcdefghijklmnopqrstuvwxyz") != "" {
 		t.Fatalf("unexpected subscription suffix: %q", saved.SubscriptionSuffix)
 	}
-		if !strings.HasPrefix(clientSubscriptionID(saved), saved.SubscriptionSuffix+"/") {
-			t.Fatalf("subscription address must use suffix-first path: %q", clientSubscriptionID(saved))
-		}
+	if !strings.HasPrefix(clientSubscriptionID(saved), saved.SubscriptionSuffix+"/") {
+		t.Fatalf("subscription address must use suffix-first path: %q", clientSubscriptionID(saved))
+	}
 	if w = request(t, h, http.MethodGet, "/kota-sub/alice", nil, nil); w.Code != http.StatusNotFound {
 		t.Fatalf("predictable subscription path should not work: %d", w.Code)
 	}
@@ -264,7 +264,7 @@ func TestSubscriptionResponseAddsSingleTotalTrafficHint(t *testing.T) {
 	a := testApp(t)
 	if err := a.store.Update(func(state *config.State) error {
 		state.Inbounds = []config.Inbound{{ID: "hy2", Name: "hy2", Type: "hysteria2", Enabled: true, Port: 24443}}
-		state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}, UsedBytes: 3 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, ExpiresAt: "2026-09-18"}}
+		state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}, UsedBytes: 3 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, ExpiresAt: "2099-09-18"}}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -282,7 +282,7 @@ func TestSubscriptionResponseAddsSingleTotalTrafficHint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if uri.Host != "127.0.0.1:1" || uri.Fragment != "总:100.0 MB 余:97.0 MB 到期:2026-09-18" {
+	if uri.Host != "127.0.0.1:1" || uri.Fragment != "总:100.0 MB 余:97.0 MB 到期:2099-09-18" {
 		t.Fatalf("unexpected traffic hint: host=%q fragment=%q", uri.Host, uri.Fragment)
 	}
 }

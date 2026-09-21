@@ -48,11 +48,19 @@ type Settings struct {
 	OutboundStrategy  string             `json:"outboundStrategy"`
 	BlockedDomains    []string           `json:"blockedDomains"`
 	BlockBitTorrent   bool               `json:"blockBitTorrent"`
+	PingTargets       []PingTarget       `json:"pingTargets,omitempty"`
 }
 
 type RealityCandidate struct {
 	Host string `json:"host"`
 	Port int    `json:"port"`
+}
+
+type PingTarget struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Address   string    `json:"address"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Inbound struct {

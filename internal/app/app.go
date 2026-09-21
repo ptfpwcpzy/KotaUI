@@ -52,6 +52,8 @@ type App struct {
 	settingsApplying    bool
 	certificateRenewMu  sync.Mutex
 	certificateRenewing bool
+	pings               *pingManager
+	backgroundOnce      sync.Once
 	startedAt           time.Time
 	sniProbe            sniProbeFunc
 }
@@ -84,7 +86,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, startedAt: time.Now().UTC(), sniProbe: probeSNI}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI}, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -109,6 +111,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/update/status", a.auth(a.updateStatus))
 	mux.HandleFunc("/api/certificate/renew", a.auth(a.renewCertificate))
 	mux.HandleFunc("/api/certificate/status", a.auth(a.certificateRenewStatus))
+	mux.HandleFunc("/api/network-quality", a.auth(a.networkQuality))
+	mux.HandleFunc("/api/network-quality/targets", a.auth(a.addPingTarget))
+	mux.HandleFunc("/api/network-quality/targets/", a.auth(a.pingTargetAction))
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
@@ -127,7 +132,7 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Serve() error {
-	go a.syncTrafficLoop()
+	a.startBackgroundTasks()
 	server := &http.Server{Addr: a.runtime.Listen, Handler: a.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	if a.runtime.TLSCert != "" && a.runtime.TLSKey != "" {
 		if _, err := os.Stat(a.runtime.TLSCert); err == nil {
@@ -135,6 +140,13 @@ func (a *App) Serve() error {
 		}
 	}
 	return server.ListenAndServe()
+}
+
+func (a *App) startBackgroundTasks() {
+	a.backgroundOnce.Do(func() {
+		go a.syncTrafficLoop()
+		go a.networkQualityLoop()
+	})
 }
 
 func (a *App) syncTrafficLoop() {
