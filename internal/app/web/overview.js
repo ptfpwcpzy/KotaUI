@@ -7,7 +7,7 @@
   const hiddenTargets = new Set();
 
   const style = document.createElement('style');
-  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 7px}.network-quality-target .nq-name{max-width:74px}.nq-chart{height:310px}}`;
+  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 7px}.network-quality-target .nq-name{max-width:74px}.nq-chart{height:420px}}`;
   document.head.append(style);
 
   window.nav = function overviewNav() {
@@ -18,8 +18,29 @@
     return pingData.samples.filter(sample => sample.targetId === id).sort((a, b) => new Date(b.checkedAt) - new Date(a.checkedAt))[0];
   }
 
+  function smoothPath(points) {
+    if (points.length < 2) return points.length ? `M${points[0][0]},${points[0][1]}` : '';
+    let path = `M${points[0][0]},${points[0][1]}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[i - 1] || points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+      const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+      const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+      const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      path += ` C${c1x},${c1y} ${c2x},${c2y} ${p2[0]},${p2[1]}`;
+    }
+    return path;
+  }
+
   function chart() {
-    const width = 900, height = 250, left = 48, right = 14, top = 16, bottom = 32;
+    const mobile = window.matchMedia('(max-width: 800px)').matches;
+    const width = mobile ? 360 : 900;
+    const height = mobile ? 420 : 380;
+    const left = mobile ? 42 : 48, right = mobile ? 10 : 14;
+    const top = mobile ? 22 : 24, bottom = mobile ? 48 : 44;
     const innerW = width - left - right, innerH = height - top - bottom;
     const now = Date.now(), start = now - 24 * 60 * 60 * 1000;
     const values = pingData.samples.map(sample => sample.avgMs).filter(Number.isFinite);
@@ -28,7 +49,7 @@
     const yMax = ranges.find(range => max <= range) || Math.ceil(max / 100) * 100;
     const x = time => left + Math.max(0, Math.min(1, (new Date(time).getTime() - start) / (now - start))) * innerW;
     const y = value => top + innerH - (Math.max(0, value) / yMax) * innerH;
-    let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="24小时延迟趋势"><style>text{font-family:Arial,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-weight:400;letter-spacing:0;text-rendering:geometricPrecision}</style>`;
+    let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="24小时延迟趋势"><style>text{font-family:Arial,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-weight:400;letter-spacing:0;text-rendering:geometricPrecision}</style>`;
     for (let i = 0; i <= 4; i++) {
       const yy = top + innerH * i / 4;
       const value = (yMax * (4 - i) / 4).toFixed(0);
@@ -43,14 +64,18 @@
     pingData.targets.forEach((target, index) => {
       if (hiddenTargets.has(target.id)) return;
       const points = pingData.samples.filter(sample => sample.targetId === target.id).sort((a, b) => new Date(a.checkedAt) - new Date(b.checkedAt)).filter(sample => new Date(sample.checkedAt) >= new Date(start));
-      let path = '', pen = false;
+      let segment = [];
+      const flush = () => {
+        const path = smoothPath(segment);
+        if (path) svg += `<path d="${path}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+        segment = [];
+      };
       points.forEach(sample => {
         const value = sample.avgMs;
-        if (!sample.received || !Number.isFinite(value)) { pen = false; return; }
-        path += `${pen ? ' L' : ' M'}${x(sample.checkedAt)},${y(value)}`;
-        pen = true;
+        if (!sample.received || !Number.isFinite(value)) { flush(); return; }
+        segment.push([x(sample.checkedAt), y(value)]);
       });
-      if (path) svg += `<path d="${path}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="2.5"/>`;
+      flush();
     });
     return `${svg}</svg>`;
   }
