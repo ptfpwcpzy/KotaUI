@@ -36,7 +36,6 @@ type pingSample struct {
 	MinMs         float64   `json:"minMs"`
 	AvgMs         float64   `json:"avgMs"`
 	MaxMs         float64   `json:"maxMs"`
-	JitterMs      float64   `json:"jitterMs"`
 	Sent          int       `json:"sent"`
 	Received      int       `json:"received"`
 	Loss          float64   `json:"loss"`
@@ -196,17 +195,6 @@ func (a *App) pingTarget(target config.PingTarget) {
 			sum += value
 		}
 		sample.AvgMs = sum / float64(len(values))
-		if len(values) > 1 {
-			var delta float64
-			for i := 1; i < len(values); i++ {
-				d := values[i] - values[i-1]
-				if d < 0 {
-					d = -d
-				}
-				delta += d
-			}
-			sample.JitterMs = delta / float64(len(values)-1)
-		}
 	}
 	a.pings.add(sample)
 }
