@@ -8,14 +8,8 @@
   let pingData = { targets: [], samples: [] };
 
   const style = document.createElement('style');
-  style.textContent = `.network-quality-card{margin-top:18px}.network-quality-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.network-quality-targets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.network-quality-target{padding:12px 13px;border-radius:13px;background:#f7f9fd;border-left:4px solid var(--blue)}.network-quality-target b{display:block;font-size:15px}.network-quality-target small{display:block;color:var(--muted);margin-top:4px}.network-quality-target .nq-metrics{margin-top:8px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.network-quality-target .nq-metrics strong{color:var(--ink);font-size:16px}.nq-tabs{display:flex;gap:7px;margin:14px 0 10px}.nq-tabs button{padding:7px 11px;border-radius:10px;background:#f1f4fa;color:#5b6b84}.nq-tabs button.on{background:#eaf1ff;color:var(--blue);font-weight:700}.nq-chart{width:100%;height:250px;display:block;border-radius:14px;background:#fbfcfe;border:1px solid var(--line)}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr}.network-quality-card{margin-top:12px}.nq-chart{height:210px}}`;
+  style.textContent = `.network-quality-card{margin-top:18px}.network-quality-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.network-quality-targets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.network-quality-target{padding:10px 12px;border-radius:12px;background:#f7f9fd;border-left:4px solid var(--blue)}.network-quality-target b{display:block;font-size:15px;line-height:1.35}.network-quality-target .nq-metrics{margin-top:5px;color:var(--muted);font-size:12px;line-height:1.35;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-metrics strong{color:var(--ink);font-size:16px}.nq-tabs{display:flex;gap:7px;margin:12px 0 9px}.nq-tabs button{padding:7px 11px;border-radius:10px;background:#f1f4fa;color:#5b6b84}.nq-tabs button.on{background:#eaf1ff;color:var(--blue);font-weight:700}.nq-chart{width:100%;height:220px;display:block;border-radius:14px;background:#fbfcfe;border:1px solid var(--line)}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr}.network-quality-card{margin-top:12px}.nq-chart{height:210px}}`;
   document.head.append(style);
-
-  function addressRow(label, values) {
-    const value = Array.isArray(values) && values.length ? values[0] : '';
-    if (!value) return `<div class="address-row empty"><span>${label}</span><b>${label === 'IPv6' ? '未检测到公网 IPv6' : '未检测到公网 IPv4'}</b></div>`;
-    return `<div class="address-row"><span>${label}</span><b>${window.esc(value)}</b></div>`;
-  }
 
   window.nav = function overviewNav() {
     const markup = originalNav();
@@ -43,8 +37,8 @@
     const now = Date.now(), start = now - 24*60*60*1000;
     const x = t => left + Math.max(0, Math.min(1, (new Date(t).getTime()-start)/(now-start))) * innerW;
     const y = v => top + innerH - (Math.max(0, v)/yMax)*innerH;
-    let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">`;
-    for(let i=0;i<=4;i++){const yy=top+innerH*i/4;const value=(yMax*(4-i)/4).toFixed(pingMode==='loss'?0:0);svg+=`<line x1="${left}" x2="${width-right}" y1="${yy}" y2="${yy}" stroke="#e4ebf4" stroke-dasharray="4 4"/><text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#78869a" font-size="11">${value}</text>`;}
+    let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="24小时网络质量趋势图"><style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","Microsoft YaHei",sans-serif;font-weight:400;letter-spacing:0}</style>`;
+    for(let i=0;i<=4;i++){const yy=top+innerH*i/4;const value=(yMax*(4-i)/4).toFixed(0);svg+=`<line x1="${left}" x2="${width-right}" y1="${yy}" y2="${yy}" stroke="#e4ebf4" stroke-dasharray="4 4"/><text x="${left-8}" y="${yy+4}" text-anchor="end" fill="#78869a" font-size="11">${value}</text>`;}
     const labels = [0,.33,.66,1]; labels.forEach(p=>{const xx=left+innerW*p;const d=new Date(start+(now-start)*p);svg+=`<text x="${xx}" y="${height-10}" text-anchor="${p===0?'start':p===1?'end':'middle'}" fill="#78869a" font-size="10">${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}</text>`;});
     const colors=['#3671ef','#12af7f','#7a61e8','#d19524','#de5b65','#4aa8c4'];
     pingData.targets.forEach((target,index)=>{const points=samples.filter(s=>s.targetId===target.id).sort((a,b)=>new Date(a.checkedAt)-new Date(b.checkedAt)).filter(s=>new Date(s.checkedAt)>=new Date(start));let path='',pen=false;points.forEach(s=>{const v=pingMode==='loss'?s.loss:pingMode==='jitter'?s.jitterMs:s.avgMs;if(!s.received||!Number.isFinite(v)){pen=false;return;}const point=`${x(s.checkedAt)},${y(v)}`;path+=(pen?' L':' M')+point;pen=true;});if(path)svg+=`<path d="${path}" fill="none" stroke="${colors[index%colors.length]}" stroke-width="2"/>`;});
@@ -55,7 +49,7 @@
     let card = dashboard.querySelector('.network-quality-card');
     if (!card) { card=document.createElement('section'); card.className='card section network-quality-card'; dashboard.append(card); }
     const colors=['#3671ef','#12af7f','#7a61e8','#d19524','#de5b65','#4aa8c4'];
-    const cards=pingData.targets.map((target,index)=>{const latest=latestFor(target.id),s=stat(latest);return `<div class="network-quality-target" style="border-left-color:${colors[index%colors.length]}"><b>${window.esc(target.name)}</b><small>${window.esc(target.address)}${latest?.address ? ` · ${window.esc(latest.addressFamily||'')}`:''}</small><div class="nq-metrics"><strong>${s.main}</strong>${s.loss?` · ${s.loss}`:''}${s.jitter?` · ${s.jitter}`:''}</div></div>`}).join('');
+    const cards=pingData.targets.map((target,index)=>{const latest=latestFor(target.id),s=stat(latest);return `<div class="network-quality-target" style="border-left-color:${colors[index%colors.length]}"><b>${window.esc(target.name)}</b><div class="nq-metrics"><strong>${s.main}</strong>${s.loss?` · ${s.loss}`:''}${s.jitter?` · ${s.jitter}`:''}</div></div>`}).join('');
     card.innerHTML=`<div class="network-quality-head"><div><h2>网络质量</h2><p class="sub">VPS 到监测目标的最近 24 小时状态 · 每分钟检测</p></div><span class="live-status">${pingData.targets.length?'自动更新':'未配置目标'}</span></div>${cards?`<div class="network-quality-targets">${cards}</div>`:'<div class="nq-empty">请在设置中添加 IP 或域名监测目标</div>'}<div class="nq-tabs"><button class="${pingMode==='latency'?'on':''}" data-nq-mode="latency">延迟</button><button class="${pingMode==='loss'?'on':''}" data-nq-mode="loss">丢包</button><button class="${pingMode==='jitter'?'on':''}" data-nq-mode="jitter">抖动</button></div>${pingData.targets.length?chart():''}<div class="badges" style="margin-top:10px">${pingData.targets.map((t,i)=>`<span class="badge"><i style="background:${colors[i%colors.length]}"></i>${window.esc(t.name)}</span>`).join('')}</div>`;
     card.querySelectorAll('[data-nq-mode]').forEach(button=>button.onclick=()=>{pingMode=button.dataset.nqMode;renderNetwork(dashboard)});
   }
@@ -68,14 +62,7 @@
     originalDashboard();
     document.querySelectorAll('[aria-label="返回仪表盘"]').forEach((element) => element.setAttribute('aria-label', '返回概览'));
     const dashboard = document.querySelector('.dashboard-grid');
-    const online = dashboard?.querySelector('.online-strip');
-    if (dashboard && online && !dashboard.querySelector('.address-strip')) {
-      const network = window.dash?.network || {};
-      const strip = document.createElement('section');
-      strip.className = 'card dashboard-strip address-strip';
-      strip.innerHTML = `<div class="address-title"><b>VPS 网络地址</b></div>${addressRow('IPv4', network.ipv4)}${addressRow('IPv6', network.ipv6)}`;
-      online.insertAdjacentElement('afterend', strip);
-    }
+    dashboard?.querySelector('.address-strip')?.remove();
     loadNetwork();
     clearInterval(pingTimer); pingTimer=setInterval(loadNetwork,60000);
   };
