@@ -3,45 +3,74 @@
   const originalNav = window.nav;
   const originalDashboard = window.viewDashboard;
   const originalSettings = window.viewSettings;
-  let pingData = { targets: [], samples: [] };
+  const colors = ['#3671ef', '#12af7f', '#7a61e8', '#d19524', '#de5b65', '#4aa8c4'];
   const hiddenTargets = new Set();
+  let pingData = { targets: [], samples: [] };
 
   const style = document.createElement('style');
   style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}`;
   document.head.append(style);
 
-  window.nav = function overviewNav() {
-    return originalNav().replace('仪表盘</button>', '概览</button>');
-  };
-
   function latestFor(id) {
-    return pingData.samples.filter(sample => sample.targetId === id).sort((a, b) => new Date(b.checkedAt) - new Date(a.checkedAt))[0];
+    return pingData.samples
+      .filter(sample => sample.targetId === id)
+      .sort((a, b) => new Date(b.checkedAt) - new Date(a.checkedAt))[0];
   }
 
-  function smoothPoints(points) {
-    if (points.length < 3) return points;
-    return points.map((point, index) => {
-      if (index === 0 || index === points.length - 1) return point;
-      const previous = points[index - 1];
-      const next = points[index + 1];
-      return [point[0], (previous[1] + point[1] * 2 + next[1]) / 4];
+  function median(values) {
+    const sorted = values.slice().sort((a, b) => a - b);
+    if (!sorted.length) return null;
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+
+  function displaySeries(targetID, start, end) {
+    const bucketMs = 5 * 60 * 1000;
+    const buckets = new Map();
+    pingData.samples
+      .filter(sample => sample.targetId === targetID)
+      .forEach(sample => {
+        const time = new Date(sample.checkedAt).getTime();
+        if (!Number.isFinite(time) || time < start || time > end) return;
+        const bucket = Math.floor(time / bucketMs) * bucketMs;
+        const entry = buckets.get(bucket) || { values: [], received: 0 };
+        if (sample.received > 0 && Number.isFinite(sample.avgMs)) entry.values.push(sample.avgMs);
+        entry.received += sample.received || 0;
+        buckets.set(bucket, entry);
+      });
+
+    return [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([time, entry]) => ({ time, value: entry.values.length ? median(entry.values) : null }));
+  }
+
+  function smoothSeries(series) {
+    const valid = series.map((point, index) => ({ point, index })).filter(item => item.point.value !== null);
+    if (valid.length < 3) return series;
+    return series.map((point, index) => {
+      if (point.value === null) return point;
+      const nearby = valid
+        .filter(item => Math.abs(item.index - index) <= 2)
+        .map(item => item.point.value);
+      return { ...point, value: median(nearby) };
     });
   }
 
-  function smoothPath(points) {
-    points = smoothPoints(points);
-    if (points.length < 2) return points.length ? `M${points[0][0]},${points[0][1]}` : '';
-    let path = `M${points[0][0]},${points[0][1]}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i - 1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] || p2;
-      const c1x = p1[0] + (p2[0] - p0[0]) / 4;
-      const c1y = p1[1] + (p2[1] - p0[1]) / 4;
-      const c2x = p2[0] - (p3[0] - p1[0]) / 4;
-      const c2y = p2[1] - (p3[1] - p1[1]) / 4;
-      path += ` C${c1x},${c1y} ${c2x},${c2y} ${p2[0]},${p2[1]}`;
+  function monotonePath(points, x, y) {
+    if (points.length < 2) return points.length ? `M${x(points[0].time)},${y(points[0].value)}` : '';
+    const coordinates = points.map(point => [x(point.time), y(point.value)]);
+    const slopes = coordinates.map((point, index) => {
+      if (index === 0) return (coordinates[1][1] - point[1]) / Math.max(1, coordinates[1][0] - point[0]);
+      if (index === coordinates.length - 1) return (point[1] - coordinates[index - 1][1]) / Math.max(1, point[0] - coordinates[index - 1][0]);
+      const left = (point[1] - coordinates[index - 1][1]) / Math.max(1, point[0] - coordinates[index - 1][0]);
+      const right = (coordinates[index + 1][1] - point[1]) / Math.max(1, coordinates[index + 1][0] - point[0]);
+      return left * right <= 0 ? 0 : (left + right) / 2;
+    });
+    let path = `M${coordinates[0][0]},${coordinates[0][1]}`;
+    for (let index = 0; index < coordinates.length - 1; index += 1) {
+      const current = coordinates[index], next = coordinates[index + 1];
+      const dx = next[0] - current[0];
+      path += ` C${current[0] + dx / 3},${current[1] + slopes[index] * dx / 3} ${next[0] - dx / 3},${next[1] - slopes[index + 1] * dx / 3} ${next[0]},${next[1]}`;
     }
     return path;
   }
@@ -58,12 +87,12 @@
     const max = Math.max(10, ...(values.length ? values : [100]));
     const ranges = [100, 200, 500];
     const yMax = ranges.find(range => max <= range) || Math.ceil(max / 100) * 100;
-    const x = time => left + Math.max(0, Math.min(1, (new Date(time).getTime() - start) / (now - start))) * innerW;
+    const x = time => left + Math.max(0, Math.min(1, (time - start) / (now - start))) * innerW;
     const y = value => top + innerH - (Math.max(0, value) / yMax) * innerH;
     let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="24小时延迟趋势"><style>text{font-family:Arial,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-weight:400;letter-spacing:0;text-rendering:geometricPrecision}</style>`;
-    for (let i = 0; i <= 4; i++) {
-      const yy = top + innerH * i / 4;
-      const value = (yMax * (4 - i) / 4).toFixed(0);
+    for (let index = 0; index <= 4; index += 1) {
+      const yy = top + innerH * index / 4;
+      const value = (yMax * (4 - index) / 4).toFixed(0);
       svg += `<line x1="${left}" x2="${width - right}" y1="${yy}" y2="${yy}" stroke="#e4e9f0"/><text x="${left - 8}" y="${yy + 4}" text-anchor="end" fill="#78869a" font-size="12">${value}</text>`;
     }
     [0, .5, 1].forEach(position => {
@@ -71,20 +100,17 @@
       const date = new Date(start + (now - start) * position);
       svg += `<text x="${xx}" y="${height - 10}" text-anchor="${position === 0 ? 'start' : position === 1 ? 'end' : 'middle'}" fill="#78869a" font-size="12">${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}</text>`;
     });
-    const colors = ['#3671ef', '#12af7f', '#7a61e8', '#d19524', '#de5b65', '#4aa8c4'];
     pingData.targets.forEach((target, index) => {
       if (hiddenTargets.has(target.id)) return;
-      const points = pingData.samples.filter(sample => sample.targetId === target.id).sort((a, b) => new Date(a.checkedAt) - new Date(b.checkedAt)).filter(sample => new Date(sample.checkedAt) >= new Date(start));
+      const series = smoothSeries(displaySeries(target.id, start, now));
       let segment = [];
       const flush = () => {
-        const path = smoothPath(segment);
-        if (path) svg += `<path d="${path}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+        if (segment.length) svg += `<path d="${monotonePath(segment, x, y)}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
         segment = [];
       };
-      points.forEach(sample => {
-        const value = sample.avgMs;
-        if (!sample.received || !Number.isFinite(value)) { flush(); return; }
-        segment.push([x(sample.checkedAt), y(value)]);
+      series.forEach(point => {
+        if (point.value === null) { flush(); return; }
+        segment.push(point);
       });
       flush();
     });
@@ -94,7 +120,6 @@
   function renderNetwork(dashboard) {
     let card = dashboard.querySelector('.network-quality-card');
     if (!card) { card = document.createElement('section'); card.className = 'card section network-quality-card'; dashboard.append(card); }
-    const colors = ['#3671ef', '#12af7f', '#7a61e8', '#d19524', '#de5b65', '#4aa8c4'];
     const targets = pingData.targets.map((target, index) => {
       const latest = latestFor(target.id);
       const latency = latest ? `${latest.avgMs.toFixed(1)}ms` : '--';
@@ -119,6 +144,10 @@
       if (dashboard) renderNetwork(dashboard);
     } catch {}
   }
+
+  window.nav = function overviewNav() {
+    return originalNav().replace('仪表盘</button>', '概览</button>');
+  };
 
   window.viewDashboard = function overviewDashboard() {
     originalDashboard();
