@@ -223,8 +223,8 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "账号或密码错误", http.StatusUnauthorized)
 		return
 	}
-	value := a.signSession(time.Now().Add(12 * time.Hour))
-	http.SetCookie(w, &http.Cookie{Name: "kotaui_session", Value: value, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 43200})
+	value := a.signSession(time.Now().Add(30 * 24 * time.Hour))
+	http.SetCookie(w, &http.Cookie{Name: "kotaui_session", Value: value, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 30 * 24 * 60 * 60})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 func (a *App) logout(w http.ResponseWriter, _ *http.Request) {
