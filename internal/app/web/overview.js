@@ -49,7 +49,7 @@
     const innerW = width - left - right, innerH = height - top - bottom;
     const now = Date.now(), start = now - 24 * 60 * 60 * 1000;
     const seriesByTarget = pingData.targets.map(target => displaySeries(target.id, start, now));
-    const values = seriesByTarget.flatMap(series => series
+    const values = seriesByTarget.flatMap((series, index) => hiddenTargets.has(pingData.targets[index].id) ? [] : series
       .filter(point => point.value !== null)
       .map(point => point.value));
     const maximum = Math.max(10, ...(values.length ? values : [100]));
