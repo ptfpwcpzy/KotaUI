@@ -149,13 +149,27 @@ func lookupGeoIP(ip string) (geoLocation, bool) {
 func (a *App) onlineUsersWithGeo(clients []config.Client, now time.Time) []map[string]any {
 	users := recentOnlineUsers(clients, now)
 	a.clientGeoMu.RLock()
-	defer a.clientGeoMu.RUnlock()
+	locations := make(map[string]geoLocation, len(a.clientGeo))
+	for name, location := range a.clientGeo {
+		locations[name] = location
+	}
+	a.clientGeoMu.RUnlock()
+	a.trafficRateMu.RLock()
+	rates := make(map[string]trafficRate, len(a.trafficRates))
+	for name, rate := range a.trafficRates {
+		rates[name] = rate
+	}
+	a.trafficRateMu.RUnlock()
 	for _, user := range users {
 		name, _ := user["username"].(string)
-		if location, ok := a.clientGeo[name]; ok {
+		if location, ok := locations[name]; ok {
 			user["latitude"] = location.Latitude
 			user["longitude"] = location.Longitude
 			user["countryCode"] = location.CountryCode
+		}
+		if rate, ok := rates[name]; ok {
+			user["uploadRate"] = rate.Upload
+			user["downloadRate"] = rate.Download
 		}
 	}
 	return users

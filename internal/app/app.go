@@ -62,6 +62,8 @@ type App struct {
 	clientGeoMu         sync.RWMutex
 	clientGeo           map[string]geoLocation
 	clientIPs           map[string]string
+	trafficRateMu       sync.RWMutex
+	trafficRates        map[string]trafficRate
 }
 
 type loginAttempt struct {
@@ -97,7 +99,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}, clientGeo: map[string]geoLocation{}, clientIPs: map[string]string{}}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}, clientGeo: map[string]geoLocation{}, clientIPs: map[string]string{}, trafficRates: map[string]trafficRate{}}, nil
 }
 
 func (a *App) Handler() http.Handler {

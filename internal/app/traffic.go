@@ -15,6 +15,11 @@ import (
 
 const statsQueryMethod = "/v2ray.core.app.stats.command.StatsService/QueryStats"
 
+type trafficRate struct {
+	Upload   int64
+	Download int64
+}
+
 type statsQueryRequest struct {
 	Patterns []string `protobuf:"bytes,3,rep,name=patterns,proto3"`
 	Regexp   bool     `protobuf:"varint,4,opt,name=regexp,proto3"`
@@ -111,6 +116,7 @@ func (a *App) syncTraffic() {
 	if a.trafficSyncInterval > 0 && nowTime.Sub(a.lastTrafficSync) < a.trafficSyncInterval {
 		return
 	}
+	previousSync := a.lastTrafficSync
 	a.lastTrafficSync = nowTime
 	state := a.store.Snapshot()
 	if len(state.Clients) == 0 {
@@ -125,6 +131,17 @@ func (a *App) syncTraffic() {
 	current, err := queryUserTraffic(ctx, a.runtime.StatsPort, usernames)
 	if err != nil {
 		return
+	}
+	seconds := nowTime.Sub(previousSync).Seconds()
+	if seconds > 0 && !previousSync.IsZero() {
+		rates := make(map[string]trafficRate, len(current))
+		for username, counters := range current {
+			before := state.TrafficCounters[username]
+			rates[username] = trafficRate{Upload: int64(float64(trafficDelta(counters.Upload, before.Upload)) / seconds), Download: int64(float64(trafficDelta(counters.Download, before.Download)) / seconds)}
+		}
+		a.trafficRateMu.Lock()
+		a.trafficRates = rates
+		a.trafficRateMu.Unlock()
 	}
 	month := nowTime.Format("2006-01")
 	needsSave := len(state.TrafficCounters) != len(state.Clients)
