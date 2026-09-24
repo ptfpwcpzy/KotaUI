@@ -183,7 +183,7 @@
     document.querySelector('.dashboard-grid')?.querySelector('.address-strip')?.remove();
     const host = ensureNetworkHost();
     if (!host) return;
-    if (!host.querySelector('.network-quality-card') && (pingData.targets.length || !networkLoadPromise)) renderNetwork(host);
+    if (!host.querySelector('.network-quality-card')) renderNetwork(host);
     if (!pingData.targets.length && !networkLoadPromise) loadNetwork();
   };
 
@@ -224,5 +224,9 @@
   }
 
   window.viewSettings = function () { originalSettings(); renderSettingsTargets(); };
-  window.go('dashboard');
+  // index.html already starts the initial load(). Calling go() here caused a
+  // second complete dashboard render and made the network card arrive late.
+  // Start the data request early; viewDashboard will mount the result when the
+  // initial dashboard render completes.
+  loadNetwork();
 })();
