@@ -123,6 +123,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/assets/home-extras.js", embeddedAsset("web/home-extras.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-subscription.js", embeddedAsset("web/client-subscription.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-expiry.css", embeddedAsset("web/client-expiry.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.css", embeddedAsset("web/tuic.css", "text/css; charset=utf-8"))
@@ -336,6 +337,8 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		totalUsed += client.UsedBytes
 		monthlyUsed += client.MonthlyUsedBytes
 	}
+	a.recordDailyUsage(totalUsed, time.Now())
+	s = a.store.Snapshot()
 	certificate := certificateStatus(a.runtime.TLSCert)
 	services := []map[string]any{
 		{"id": "panel", "name": "KotaUI 面板", "running": serviceRunning("kotaui")},
@@ -358,6 +361,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"services":            services,
 		"healthHints":         dashboardHints(s, certificate, services),
 		"network":             publicNetworkAddressesForHost(),
+		"dailyTraffic":        lastSevenDays(s, time.Now()),
 	})
 }
 
@@ -1051,6 +1055,58 @@ func (a *App) resetMonth() {
 	}
 	go func() { _ = a.restartManagedSingBox() }()
 }
+
+func (a *App) recordDailyUsage(totalUsed int64, now time.Time) {
+	today := now.In(config.PanelLocation).Format("2006-01-02")
+	_ = a.mutate(func(s *config.State) error {
+		if s.DailyDate == "" {
+			s.DailyDate = today
+			s.DailyAnchor = totalUsed
+			return nil
+		}
+		if s.DailyDate == today {
+			return nil
+		}
+		delta := totalUsed - s.DailyAnchor
+		if delta < 0 {
+			delta = 0
+		}
+		s.DailyUsage = append(s.DailyUsage, config.DailyUsage{Date: s.DailyDate, Bytes: delta})
+		if len(s.DailyUsage) > 14 {
+			s.DailyUsage = s.DailyUsage[len(s.DailyUsage)-14:]
+		}
+		s.DailyDate = today
+		s.DailyAnchor = totalUsed
+		return nil
+	})
+}
+
+func lastSevenDays(s config.State, now time.Time) []map[string]any {
+	byDate := map[string]int64{}
+	for _, row := range s.DailyUsage {
+		byDate[row.Date] = row.Bytes
+	}
+	out := make([]map[string]any, 0, 7)
+	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
+	for i := 6; i >= 0; i-- {
+		day := base.AddDate(0, 0, -i).Format("2006-01-02")
+		bytes := byDate[day]
+		if day == s.DailyDate {
+			delta := int64(0)
+			for _, client := range s.Clients {
+				delta += client.UsedBytes
+			}
+			delta -= s.DailyAnchor
+			if delta < 0 {
+				delta = 0
+			}
+			bytes = delta
+		}
+		out = append(out, map[string]any{"date": day, "bytes": bytes})
+	}
+	return out
+}
+
 func (a *App) panelURL() string {
 	scheme := "http"
 	if filePresent(a.runtime.TLSCert) {
