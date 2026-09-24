@@ -84,10 +84,16 @@
     const top = mobile ? 16 : 24, bottom = mobile ? 36 : 44;
     const innerW = width - left - right, innerH = height - top - bottom;
     const now = Date.now(), start = now - 24 * 60 * 60 * 1000;
-    const values = pingData.samples.map(sample => sample.avgMs).filter(Number.isFinite);
-    const max = Math.max(10, ...(values.length ? values : [100]));
+    const values = pingData.samples.map(sample => sample.avgMs).filter(value => Number.isFinite(value) && value >= 0);
+    // Use the 95th percentile for the axis so one transient timeout or spike
+    // does not compress an otherwise normal 24-hour latency chart.
+    const sortedValues = [...values].sort((a, b) => a - b);
+    const percentile95 = sortedValues.length
+      ? sortedValues[Math.min(sortedValues.length - 1, Math.ceil(sortedValues.length * 0.95) - 1)]
+      : 0;
+    const representativeMax = Math.max(10, percentile95);
     const ranges = [100, 200, 500];
-    const yMax = ranges.find(range => max <= range) || Math.ceil(max / 100) * 100;
+    const yMax = ranges.find(range => representativeMax <= range) || Math.ceil(representativeMax / 100) * 100;
     const x = time => left + Math.max(0, Math.min(1, (time - start) / (now - start))) * innerW;
     const y = value => top + innerH - (Math.max(0, value) / yMax) * innerH;
     let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="24小时延迟趋势"><style>text{font-family:Arial,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-weight:400;letter-spacing:0;text-rendering:geometricPrecision}</style>`;
