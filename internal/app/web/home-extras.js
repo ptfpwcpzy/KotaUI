@@ -21,11 +21,11 @@
   function userPoint(user, index) {
     const lat = Number(user.latitude), lon = Number(user.longitude);
     if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
-    return fallbackPoint(user, index);
+    return null;
   }
   function serverPoint(dash) {
     const n = dash.network || {}, lat = Number(n.latitude), lon = Number(n.longitude);
-    return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : { lat: 22, lon: 114 };
+    return Number.isFinite(lat) && Number.isFinite(lon) && (lat !== 0 || lon !== 0) ? { lat, lon } : null;
   }
   function label(text, x, y, color, size = 11) {
     ctx.font = `600 ${size}px system-ui,-apple-system,sans-serif`; ctx.textBaseline = 'middle';
@@ -45,9 +45,9 @@
     const points = LAND_POINTS.map(p => project(p[0], p[1], state.rotation, radius, cx, cy)).sort((a,b) => a.z - b.z);
     const dot = Math.max(.8, radius / 155);
     for (const p of points) { if (p.z <= 0) continue; ctx.beginPath(); ctx.arc(p.x, p.y, dot, 0, Math.PI * 2); ctx.fillStyle = pointColor(p.z); ctx.fill(); }
-    const dash = window.dash || {}, users = (dash.onlineUsers || []).slice(0, 20), sp = serverPoint(dash), server = project(sp.lon, sp.lat, state.rotation, radius, cx, cy);
-    const serverVisible = server.z > .06;
-    const visible = users.map((user, i) => { const q=userPoint(user,i), p=project(q.lon,q.lat,state.rotation,radius,cx,cy); return { user, p }; }).filter(x => x.p.z > .06);
+    const dash = window.dash || {}, users = (dash.onlineUsers || []).slice(0, 20), sp = serverPoint(dash), server = sp ? project(sp.lon, sp.lat, state.rotation, radius, cx, cy) : null;
+    const serverVisible = Boolean(server && server.z > .06);
+    const visible = users.map((user, i) => { const q=userPoint(user,i); return q ? { user, p: project(q.lon,q.lat,state.rotation,radius,cx,cy) } : null; }).filter(x => x && x.p.z > .06);
     if (serverVisible) for (const item of visible) { const p=item.p; ctx.beginPath(); ctx.moveTo(server.x,server.y); ctx.quadraticCurveTo((server.x+p.x)/2,Math.min(server.y,p.y)-radius*.18,p.x,p.y); ctx.strokeStyle='#3978e866'; ctx.lineWidth=1; ctx.stroke(); }
     const markers = [...(serverVisible ? [{ p: server, color: '#168c69', size: 4, text: '服务器' }] : []), ...visible.map(x => ({ p:x.p, color:'#3978e8', size:3, text:`${flag(x.user.countryCode)} ${String(x.user.username || '客户端').slice(0,16)}` }))];
     for (const m of markers) { ctx.beginPath(); ctx.arc(m.p.x,m.p.y,m.size+4,0,Math.PI*2); ctx.fillStyle=m.color+'20'; ctx.fill(); ctx.beginPath(); ctx.arc(m.p.x,m.p.y,m.size,0,Math.PI*2); ctx.fillStyle=m.color; ctx.fill(); const lx=m.p.x+8, ly=m.p.y-10; if (m.p.z>.06) label(m.text,lx,ly,m.color,10); }

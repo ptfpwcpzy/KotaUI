@@ -78,7 +78,7 @@ func Write(state config.State, runtime config.Runtime) error {
 		directOutbound["domain_strategy"] = strategy
 	}
 	root := map[string]any{
-		"log":       map[string]any{"level": "warn", "timestamp": true},
+		"log":       map[string]any{"level": "info", "output": filepath.Join(runtime.DataDir, "singbox-access.log"), "timestamp": true},
 		"inbounds":  inbounds,
 		"outbounds": []map[string]any{directOutbound},
 		"experimental": map[string]any{

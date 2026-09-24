@@ -59,6 +59,9 @@ type App struct {
 	loginFails          map[string]loginAttempt
 	publicNetworkMu     sync.RWMutex
 	publicNetwork       publicNetworkAddresses
+	clientGeoMu         sync.RWMutex
+	clientGeo           map[string]geoLocation
+	clientIPs           map[string]string
 }
 
 type loginAttempt struct {
@@ -94,7 +97,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}, clientGeo: map[string]geoLocation{}, clientIPs: map[string]string{}}, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -151,6 +154,7 @@ func (a *App) startBackgroundTasks() {
 		go a.syncTrafficLoop()
 		go a.networkQualityLoop()
 		go a.publicNetworkLoop()
+		go a.geoLocationLoop()
 	})
 }
 
@@ -350,7 +354,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metrics":       system.Collect(a.runtime.DataDir, ports),
 		"activeClients": active,
-		"onlineUsers":   recentOnlineUsers(s.Clients, time.Now()),
+		"onlineUsers":   a.onlineUsersWithGeo(s.Clients, time.Now()),
 		"panelUptime":   int64(time.Since(a.startedAt).Seconds()),
 		"coreUptime": func() int64 {
 			u := recordedUptime("/run/kotaui-singbox.started", time.Now())
