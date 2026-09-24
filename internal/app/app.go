@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -56,6 +55,13 @@ type App struct {
 	backgroundOnce      sync.Once
 	startedAt           time.Time
 	sniProbe            sniProbeFunc
+	loginMu             sync.Mutex
+	loginFails          map[string]loginAttempt
+}
+
+type loginAttempt struct {
+	count   int
+	blocked time.Time
 }
 
 func New(runtime config.Runtime) (*App, error) {
@@ -86,7 +92,7 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 5 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}}, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -117,6 +123,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("/assets/home-extras.js", embeddedAsset("web/home-extras.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-subscription.js", embeddedAsset("web/client-subscription.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-expiry.css", embeddedAsset("web/client-expiry.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.css", embeddedAsset("web/tuic.css", "text/css; charset=utf-8"))
@@ -134,12 +141,7 @@ func (a *App) Handler() http.Handler {
 func (a *App) Serve() error {
 	a.startBackgroundTasks()
 	server := &http.Server{Addr: a.runtime.Listen, Handler: a.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
-	if a.runtime.TLSCert != "" && a.runtime.TLSKey != "" {
-		if _, err := os.Stat(a.runtime.TLSCert); err == nil {
-			return server.ListenAndServeTLS(a.runtime.TLSCert, a.runtime.TLSKey)
-		}
-	}
-	return server.ListenAndServe()
+	return serveTLS(server, a.runtime)
 }
 
 func (a *App) startBackgroundTasks() {
@@ -151,21 +153,31 @@ func (a *App) startBackgroundTasks() {
 
 func (a *App) syncTrafficLoop() {
 	a.syncTraffic()
+	a.recordDailyUsage(totalClientUsage(a.store.Snapshot()), time.Now())
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		a.syncTraffic()
+		a.recordDailyUsage(totalClientUsage(a.store.Snapshot()), time.Now())
 	}
 }
 
 func (a *App) ServeSubscription() error {
 	server := &http.Server{Addr: fmt.Sprintf("0.0.0.0:%d", a.runtime.SubscriptionPort), Handler: a.subscriptionHandler(), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second}
-	if a.runtime.TLSCert != "" && a.runtime.TLSKey != "" {
-		if _, err := os.Stat(a.runtime.TLSCert); err == nil {
-			return server.ListenAndServeTLS(a.runtime.TLSCert, a.runtime.TLSKey)
-		}
+	return serveTLS(server, a.runtime)
+}
+
+func serveTLS(server *http.Server, runtime config.Runtime) error {
+	if runtime.TLSCert == "" || runtime.TLSKey == "" {
+		return server.ListenAndServe()
 	}
-	return server.ListenAndServe()
+	if _, err := os.Stat(runtime.TLSCert); err != nil {
+		return fmt.Errorf("TLS 证书不可用：%w", err)
+	}
+	if _, err := os.Stat(runtime.TLSKey); err != nil {
+		return fmt.Errorf("TLS 私钥不可用：%w", err)
+	}
+	return server.ListenAndServeTLS(runtime.TLSCert, runtime.TLSKey)
 }
 
 func (a *App) subscriptionHandler() http.Handler {
@@ -185,7 +197,7 @@ func (a *App) panel(w http.ResponseWriter, _ *http.Request) {
 func subscriptionBrandLogo(page string) string {
 	const icon = "/assets/kotaui-logo.png"
 	const favicon = "/favicon.ico?v=china-map-v2"
-	page = strings.Replace(page, "<title>KotaUI 订阅</title>", `<title>KotaUI 订阅</title><link rel="icon" href="`+favicon+`" type="image/png">`, 1)
+	page = strings.Replace(page, "</title>", `</title><link rel="icon" href="`+favicon+`" type="image/png">`, 1)
 	page = strings.Replace(page, "</style>", `.logo{background:#fff!important;border:1px solid #e4ebf4;padding:2px}.logo:after,.logo svg{display:none!important}.logo img{display:block;width:100%;height:100%;object-fit:contain;transform:scale(1.32)}</style>`, 1)
 	return strings.Replace(page, `<div class="logo">`, `<div class="logo"><img src="`+icon+`" alt="KotaUI">`, 1)
 }
@@ -219,10 +231,16 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
+	if a.loginBlocked(r) {
+		http.Error(w, "登录失败次数过多，请稍后再试", http.StatusTooManyRequests)
+		return
+	}
 	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(a.runtime.AdminUser)) != 1 || subtle.ConstantTimeCompare([]byte(body.Password), []byte(a.runtime.AdminPassword)) != 1 {
+		a.noteLoginFailure(r)
 		http.Error(w, "账号或密码错误", http.StatusUnauthorized)
 		return
 	}
+	a.clearLoginFailures(r)
 	value := a.signSession(time.Now().Add(30 * 24 * time.Hour))
 	http.SetCookie(w, &http.Cookie{Name: "kotaui_session", Value: value, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 30 * 24 * 60 * 60})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -230,6 +248,40 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 func (a *App) logout(w http.ResponseWriter, _ *http.Request) {
 	http.SetCookie(w, &http.Cookie{Name: "kotaui_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func loginClientKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func (a *App) loginBlocked(r *http.Request) bool {
+	a.loginMu.Lock()
+	defer a.loginMu.Unlock()
+	attempt, exists := a.loginFails[loginClientKey(r)]
+	return exists && time.Now().Before(attempt.blocked)
+}
+
+func (a *App) noteLoginFailure(r *http.Request) {
+	a.loginMu.Lock()
+	defer a.loginMu.Unlock()
+	key := loginClientKey(r)
+	attempt := a.loginFails[key]
+	attempt.count++
+	if attempt.count >= 5 {
+		attempt.blocked = time.Now().Add(time.Minute)
+		attempt.count = 0
+	}
+	a.loginFails[key] = attempt
+}
+
+func (a *App) clearLoginFailures(r *http.Request) {
+	a.loginMu.Lock()
+	defer a.loginMu.Unlock()
+	delete(a.loginFails, loginClientKey(r))
 }
 func (a *App) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -293,11 +345,17 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		{"id": "singbox", "name": "sing-box 核心", "running": serviceRunning("kotaui-singbox")},
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"metrics":             system.Collect(a.runtime.DataDir, ports),
-		"activeClients":       active,
-		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
-		"panelUptime":         int64(time.Since(a.startedAt).Seconds()),
-		"coreUptime":          recordedUptime("/run/kotaui-singbox.started", time.Now()),
+		"metrics":       system.Collect(a.runtime.DataDir, ports),
+		"activeClients": active,
+		"onlineUsers":   recentOnlineUsers(s.Clients, time.Now()),
+		"panelUptime":   int64(time.Since(a.startedAt).Seconds()),
+		"coreUptime": func() int64 {
+			u := recordedUptime("/run/kotaui-singbox.started", time.Now())
+			if u == 0 && serviceRunning("kotaui-singbox") {
+				return 1
+			}
+			return u
+		}(),
 		"inboundCount":        len(s.Inbounds),
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,
@@ -309,7 +367,16 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"services":            services,
 		"healthHints":         dashboardHints(s, certificate, services),
 		"network":             publicNetworkAddressesForHost(),
+		"dailyTraffic":        lastSevenDays(s, time.Now()),
 	})
+}
+
+func totalClientUsage(state config.State) int64 {
+	var total int64
+	for _, client := range state.Clients {
+		total += client.UsedBytes
+	}
+	return total
 }
 
 func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
@@ -326,6 +393,9 @@ func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
+		if inbound.Name == "" {
+			inbound.Name = protocolDisplayName(inbound.Type)
+		}
 		if err := validateInbound(&inbound); err != nil {
 			badRequest(w, err)
 			return
@@ -333,6 +403,9 @@ func (a *App) inbounds(w http.ResponseWriter, r *http.Request) {
 		inbound.ID = config.NewID()
 		inbound.Enabled = true
 		if err := a.mutate(func(s *config.State) error {
+			if err := validateReservedPort(inbound.Port, a.runtime); err != nil {
+				return err
+			}
 			if err := validateInboundPort(s.Inbounds, inbound, ""); err != nil {
 				return err
 			}
@@ -360,6 +433,7 @@ func (a *App) inboundAction(w http.ResponseWriter, r *http.Request) {
 			for i, value := range s.Inbounds {
 				if value.ID == id {
 					s.Inbounds = append(s.Inbounds[:i], s.Inbounds[i+1:]...)
+					s.Clients = detachInboundFromClients(s.Clients, id)
 					return nil
 				}
 			}
@@ -398,6 +472,9 @@ func (a *App) inboundAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.mutate(func(s *config.State) error {
+			if err := validateReservedPort(incoming.Port, a.runtime); err != nil {
+				return err
+			}
 			if err := validateInboundPort(s.Inbounds, incoming, id); err != nil {
 				return err
 			}
@@ -539,7 +616,7 @@ func newClientCredentials(protocol string) (credential, tuicPassword string) {
 func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients/"), "/")
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPatch {
-		var request clientExpiryRequest
+		var request clientCreateRequest
 		if err := decodeJSON(r, &request); err != nil {
 			badRequest(w, err)
 			return
@@ -608,7 +685,7 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (a *App) updateClient(id string, request clientExpiryRequest) error {
+func (a *App) updateClient(id string, request clientCreateRequest) error {
 	return a.mutate(func(s *config.State) error {
 		var target *config.Client
 		for i := range s.Clients {
@@ -665,6 +742,19 @@ func (a *App) updateClient(id string, request clientExpiryRequest) error {
 		target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
 		target.ExpiresAt = incoming.ExpiresAt
 		target.MaxOnlineIPs = incoming.MaxOnlineIPs
+		if request.RandomSubscriptionSuffix != nil {
+			if *request.RandomSubscriptionSuffix {
+				if target.SubscriptionSuffix == "" {
+					suffix, err := uniqueSubscriptionSuffix(s.Clients, target.Username)
+					if err != nil {
+						return err
+					}
+					target.SubscriptionSuffix = suffix
+				}
+			} else {
+				target.SubscriptionSuffix = ""
+			}
+		}
 		if err := validateUniqueSubscriptionID(s.Clients, *target, id); err != nil {
 			return err
 		}
@@ -685,8 +775,8 @@ func resolveClientExpiry(current, legacyDate, unit string, amount int, now time.
 	if amount < 1 || amount > 9999 {
 		return "", errors.New("有效期数量必须在 1–9999 之间")
 	}
-	localNow := now.In(time.Local)
-	base := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.Local)
+	localNow := now.In(config.PanelLocation)
+	base := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, config.PanelLocation)
 	switch unit {
 	case "day":
 		return base.AddDate(0, 0, amount).Format("2006-01-02"), nil
@@ -889,7 +979,7 @@ func (a *App) subscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("content-type", "text/plain; charset=utf-8")
-	_, _ = io.WriteString(w, subscriptionTrafficHint(client)+"\n"+links)
+	_, _ = io.WriteString(w, links)
 }
 
 func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client, subscriptionURL string) {
@@ -898,46 +988,16 @@ func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client
 		fields = append(fields, "total="+strconv.FormatInt(client.TotalLimitBytes, 10))
 	}
 	if client.ExpiresAt != "" {
-		if expires, err := time.ParseInLocation("2006-01-02", client.ExpiresAt, time.Local); err == nil {
+		if expires, err := time.ParseInLocation("2006-01-02", client.ExpiresAt, config.PanelLocation); err == nil {
 			expires = expires.AddDate(0, 0, 1).Add(-time.Second)
 			fields = append(fields, "expire="+strconv.FormatInt(expires.Unix(), 10))
 		}
 	}
 	w.Header().Set("Subscription-Userinfo", strings.Join(fields, "; "))
-	w.Header().Set("Profile-Title", "KotaUI · "+client.Username)
+	w.Header().Set("Profile-Title", client.Username)
+	w.Header().Set("profile-title", client.Username)
 	w.Header().Set("Profile-Update-Interval", "12")
 	w.Header().Set("Profile-Web-Page-Url", subscriptionURL)
-}
-
-// subscriptionTrafficHint is intentionally the only display-only subscription item.
-// Its loopback endpoint prevents traffic from being sent to an external server if it is selected by mistake.
-func subscriptionTrafficHint(client config.Client) string {
-	quotaKind := "总"
-	quotaLimit := client.TotalLimitBytes
-	quotaUsed := client.UsedBytes
-	if client.MonthlyLimitBytes > 0 {
-		quotaKind = "月"
-		quotaLimit = client.MonthlyLimitBytes
-		quotaUsed = client.MonthlyUsedBytes
-	}
-
-	total := "不限"
-	remaining := "不限"
-	if quotaLimit > 0 {
-		total = formatBytes(quotaLimit)
-		left := quotaLimit - quotaUsed
-		if left < 0 {
-			left = 0
-		}
-		remaining = formatBytes(left)
-	}
-	expires := client.ExpiresAt
-	if expires == "" {
-		expires = "不限"
-	}
-	label := quotaKind + ":" + total + " 余:" + remaining + " 到期:" + expires
-	userinfo := base64.RawURLEncoding.EncodeToString([]byte("aes-256-gcm:subscription-info"))
-	return "ss://" + userinfo + "@127.0.0.1:1#" + url.PathEscape(label)
 }
 
 func (a *App) subscriptionPage(client config.Client, linkCount int, subscriptionURL string) string {
@@ -961,7 +1021,7 @@ func (a *App) subscriptionPage(client config.Client, linkCount int, subscription
 	if expires == "" {
 		expires = "无到期日"
 	}
-	return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KotaUI 订阅</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 6%,#eaf1ff,transparent 30%),#f5f8fc;color:#15223a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}.wrap{max-width:640px;margin:0 auto;padding:30px 16px 46px}.brand{display:flex;align-items:center;gap:12px;margin:4px 4px 20px}.logo{width:44px;height:44px;border-radius:15px;background:linear-gradient(145deg,#3077ef,#7562e7);color:#fff;display:grid;place-items:center;box-shadow:0 10px 24px #4e73de38;position:relative;overflow:hidden}.logo:after{content:"";position:absolute;inset:5px;border:1px solid #ffffff42;border-radius:11px}.logo svg{position:relative;z-index:1}.brand b{display:block;font-size:22px;letter-spacing:.1px}.brand small{display:block;margin-top:3px;color:#78869a}.card{background:#fff;border:1px solid #e4ebf4;border-radius:22px;box-shadow:0 14px 34px #2334510c;overflow:hidden}.head{padding:20px 22px;border-bottom:1px solid #edf1f6;display:flex;justify-content:space-between;align-items:center}.head b{font-size:20px}.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#eaf8f2;color:#168c69;font-size:13px;font-weight:700}.badge i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px #dff7ed;animation:lamp 1.8s ease-in-out infinite}@keyframes lamp{0%,100%{opacity:.82;transform:scale(.94);box-shadow:0 0 0 4px #dff7ed}50%{opacity:1;transform:scale(1);box-shadow:0 0 0 7px #d5f7e8}}.table{padding:10px 20px}.row{display:grid;grid-template-columns:110px 1fr;border-bottom:1px solid #edf1f6;padding:13px 0;gap:10px}.row:last-child{border:0}.row span{color:#78869a;font-size:13px}.row strong{font-variant-numeric:tabular-nums}.usage{margin:18px 20px;padding:18px;border-radius:17px;background:linear-gradient(135deg,#eef4ff,#f7f4ff);display:flex;justify-content:space-between;align-items:center;gap:12px}.usage small{color:#6f7e94}.usage b{font-size:24px;letter-spacing:-.3px}.sub{margin:20px;padding:16px;border:1px solid #e5eaf3;border-radius:16px}.sub label{display:block;color:#7d8799;font-size:13px;margin-bottom:8px}.url{font-size:13px;word-break:break-all;line-height:1.6;color:#273454}.copy{margin-top:12px;width:100%;border:0;border-radius:12px;padding:12px;background:#3569ee;color:#fff;font-size:15px}.foot{text-align:center;color:#8b94a4;font-size:13px;margin-top:22px;line-height:1.7}@media(max-width:420px){.wrap{padding:18px 12px}.row{grid-template-columns:92px 1fr}.usage b{font-size:21px}}</style><body><main class="wrap"><header class="brand"><div class="logo"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="12" r="2.4"/><path d="M8.5 12h2.2c1.2 0 1.6-2.8 2.8-2.8h1.1M8.5 12h2.2c1.2 0 1.6 2.8 2.8 2.8h1.1"/><path d="M3.5 7.2v9.6M20.5 7.2v9.6" opacity=".55"/></svg></div><div><b>KotaUI</b><small>轻量 sing-box 订阅服务 · 作者：那么羡慕你</small></div></header><section class="card"><div class="head"><b>订阅信息</b><span class="badge"><i></i>连接正常</span></div><div class="table"><div class="row"><span>订阅 ID</span><strong>` + htmlEscape(client.Username) + `</strong></div><div class="row"><span>订阅状态</span><strong>正常 · ` + strconv.Itoa(linkCount) + ` 个节点</strong></div><div class="row"><span>累计使用</span><strong>` + formatBytes(client.UsedBytes) + `</strong></div><div class="row"><span>本月使用</span><strong>` + monthlyUsage + `</strong></div><div class="row"><span>每月限额</span><strong>` + monthlyLimit + ` · 剩余 ` + monthlyRemaining + `</strong></div><div class="row"><span>总配额</span><strong>` + limit + `</strong></div><div class="row"><span>有效期</span><strong>` + htmlEscape(expires) + `</strong></div></div><div class="usage"><div><small>本月流量</small><br><b>` + monthlyUsage + `</b><br><small>累计 ` + formatBytes(client.UsedBytes) + ` / ` + limit + `</small></div><span class="badge"><i></i>订阅可用</span></div><div class="sub"><label>订阅地址</label><div class="url" id="url">` + htmlEscape(subscriptionURL) + `</div><button class="copy" onclick="navigator.clipboard.writeText(document.querySelector('#url').textContent).then(()=>this.textContent='已复制订阅地址').catch(()=>this.textContent='请手动复制')">复制订阅地址</button></div></section><p class="foot">作者那么羡慕你，仅供学习自用，请勿随意传播。</p></main></body></html>`
+	return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>` + htmlEscape(client.Username) + `</title><style>*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 8% 6%,#eaf1ff,transparent 30%),#f5f8fc;color:#15223a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}.wrap{max-width:640px;margin:0 auto;padding:30px 16px 46px}.brand{display:flex;align-items:center;gap:12px;margin:4px 4px 20px}.logo{width:44px;height:44px;border-radius:15px;background:linear-gradient(145deg,#3077ef,#7562e7);color:#fff;display:grid;place-items:center;box-shadow:0 10px 24px #4e73de38;position:relative;overflow:hidden}.logo:after{content:"";position:absolute;inset:5px;border:1px solid #ffffff42;border-radius:11px}.logo svg{position:relative;z-index:1}.brand b{display:block;font-size:22px;letter-spacing:.1px}.brand small{display:block;margin-top:3px;color:#78869a}.card{background:#fff;border:1px solid #e4ebf4;border-radius:22px;box-shadow:0 14px 34px #2334510c;overflow:hidden}.head{padding:20px 22px;border-bottom:1px solid #edf1f6;display:flex;justify-content:space-between;align-items:center}.head b{font-size:20px}.badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#eaf8f2;color:#168c69;font-size:13px;font-weight:700}.badge i{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 4px #dff7ed;animation:lamp 1.8s ease-in-out infinite}@keyframes lamp{0%,100%{opacity:.82;transform:scale(.94);box-shadow:0 0 0 4px #dff7ed}50%{opacity:1;transform:scale(1);box-shadow:0 0 0 7px #d5f7e8}}.table{padding:10px 20px}.row{display:grid;grid-template-columns:110px 1fr;border-bottom:1px solid #edf1f6;padding:13px 0;gap:10px}.row:last-child{border:0}.row span{color:#78869a;font-size:13px}.row strong{font-variant-numeric:tabular-nums}.usage{margin:18px 20px;padding:18px;border-radius:17px;background:linear-gradient(135deg,#eef4ff,#f7f4ff);display:flex;justify-content:space-between;align-items:center;gap:12px}.usage small{color:#6f7e94}.usage b{font-size:24px;letter-spacing:-.3px}.sub{margin:20px;padding:16px;border:1px solid #e5eaf3;border-radius:16px}.sub label{display:block;color:#7d8799;font-size:13px;margin-bottom:8px}.url{font-size:13px;word-break:break-all;line-height:1.6;color:#273454}.copy{margin-top:12px;width:100%;border:0;border-radius:12px;padding:12px;background:#3569ee;color:#fff;font-size:15px}.foot{text-align:center;color:#8b94a4;font-size:13px;margin-top:22px;line-height:1.7}@media(max-width:420px){.wrap{padding:18px 12px}.row{grid-template-columns:92px 1fr}.usage b{font-size:21px}}</style><body><main class="wrap"><header class="brand"><div class="logo"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="12" r="2.4"/><path d="M8.5 12h2.2c1.2 0 1.6-2.8 2.8-2.8h1.1M8.5 12h2.2c1.2 0 1.6 2.8 2.8 2.8h1.1"/><path d="M3.5 7.2v9.6M20.5 7.2v9.6" opacity=".55"/></svg></div><div><b>KotaUI</b><small>轻量 sing-box 订阅服务 · 作者：那么羡慕你</small></div></header><section class="card"><div class="head"><b>订阅信息</b><span class="badge"><i></i>连接正常</span></div><div class="table"><div class="row"><span>订阅 ID</span><strong>` + htmlEscape(client.Username) + `</strong></div><div class="row"><span>订阅状态</span><strong>正常 · ` + strconv.Itoa(linkCount) + ` 个节点</strong></div><div class="row"><span>累计使用</span><strong>` + formatBytes(client.UsedBytes) + `</strong></div><div class="row"><span>本月使用</span><strong>` + monthlyUsage + `</strong></div><div class="row"><span>每月限额</span><strong>` + monthlyLimit + ` · 剩余 ` + monthlyRemaining + `</strong></div><div class="row"><span>总配额</span><strong>` + limit + `</strong></div><div class="row"><span>有效期</span><strong>` + htmlEscape(expires) + `</strong></div></div><div class="usage"><div><small>本月流量</small><br><b>` + monthlyUsage + `</b><br><small>累计 ` + formatBytes(client.UsedBytes) + ` / ` + limit + `</small></div><span class="badge"><i></i>订阅可用</span></div><div class="sub"><label>订阅地址</label><div class="url" id="url">` + htmlEscape(subscriptionURL) + `</div><button class="copy" onclick="navigator.clipboard.writeText(document.querySelector('#url').textContent).then(()=>this.textContent='已复制订阅地址').catch(()=>this.textContent='请手动复制')">复制订阅地址</button></div></section><p class="foot">作者那么羡慕你，仅供学习自用，请勿随意传播。</p></main></body></html>`
 }
 
 func (a *App) mutate(fn func(*config.State) error) error {
@@ -1009,6 +1069,63 @@ func (a *App) resetMonth() {
 	}
 	go func() { _ = a.restartManagedSingBox() }()
 }
+
+func (a *App) recordDailyUsage(totalUsed int64, now time.Time) {
+	today := now.In(config.PanelLocation).Format("2006-01-02")
+	// Dashboard is polled frequently; avoid rewriting state.json on every
+	// request while the current daily bucket is unchanged.
+	if current := a.store.Snapshot(); current.DailyDate == today {
+		return
+	}
+	_ = a.mutate(func(s *config.State) error {
+		if s.DailyDate == "" {
+			s.DailyDate = today
+			s.DailyAnchor = totalUsed
+			return nil
+		}
+		if s.DailyDate == today {
+			return nil
+		}
+		delta := totalUsed - s.DailyAnchor
+		if delta < 0 {
+			delta = 0
+		}
+		s.DailyUsage = append(s.DailyUsage, config.DailyUsage{Date: s.DailyDate, Bytes: delta})
+		if len(s.DailyUsage) > 14 {
+			s.DailyUsage = s.DailyUsage[len(s.DailyUsage)-14:]
+		}
+		s.DailyDate = today
+		s.DailyAnchor = totalUsed
+		return nil
+	})
+}
+
+func lastSevenDays(s config.State, now time.Time) []map[string]any {
+	byDate := map[string]int64{}
+	for _, row := range s.DailyUsage {
+		byDate[row.Date] = row.Bytes
+	}
+	out := make([]map[string]any, 0, 7)
+	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
+	for i := 6; i >= 0; i-- {
+		day := base.AddDate(0, 0, -i).Format("2006-01-02")
+		bytes := byDate[day]
+		if day == s.DailyDate {
+			delta := int64(0)
+			for _, client := range s.Clients {
+				delta += client.UsedBytes
+			}
+			delta -= s.DailyAnchor
+			if delta < 0 {
+				delta = 0
+			}
+			bytes = delta
+		}
+		out = append(out, map[string]any{"date": day, "bytes": bytes})
+	}
+	return out
+}
+
 func (a *App) panelURL() string {
 	scheme := "http"
 	if filePresent(a.runtime.TLSCert) {
@@ -1047,8 +1164,8 @@ func validateUniqueSubscriptionID(clients []config.Client, candidate config.Clie
 
 func uniqueSubscriptionSuffix(clients []config.Client, username string) (string, error) {
 	for range 32 {
-		suffix := config.RandomLetters(5)
-		candidate := username + "/" + suffix
+		suffix := config.RandomLetters(8)
+		candidate := suffix + "/" + username
 		used := false
 		for _, client := range clients {
 			if clientSubscriptionID(client) == candidate {
@@ -1126,6 +1243,9 @@ func generateRealityKeypair(binary string) (string, string, error) {
 
 func validateInbound(v *config.Inbound) error {
 	v.Name = strings.TrimSpace(v.Name)
+	if v.Name == "" {
+		v.Name = protocolDisplayName(v.Type)
+	}
 	if v.Name == "" {
 		return errors.New("入站名称不能为空")
 	}

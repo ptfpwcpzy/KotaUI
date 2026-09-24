@@ -14,7 +14,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -107,7 +106,7 @@ func TestInboundClientAndSubscription(t *testing.T) {
 	}
 	state := a.store.Snapshot()
 	saved := state.Clients[0]
-	if len(saved.SubscriptionSuffix) != 5 || strings.Trim(saved.SubscriptionSuffix, "abcdefghijklmnopqrstuvwxyz") != "" {
+	if len(saved.SubscriptionSuffix) != 8 || strings.Trim(saved.SubscriptionSuffix, "abcdefghijklmnopqrstuvwxyz") != "" {
 		t.Fatalf("unexpected subscription suffix: %q", saved.SubscriptionSuffix)
 	}
 	if !strings.HasPrefix(clientSubscriptionID(saved), saved.SubscriptionSuffix+"/") {
@@ -257,50 +256,6 @@ func TestPanelClientSubscriptionScriptUsesSlashSeparatedIdentifier(t *testing.T)
 	script := request(t, a.Handler(), http.MethodGet, "/assets/client-subscription.js", nil, nil)
 	if script.Code != http.StatusOK || !strings.Contains(script.Body.String(), "if (!client.subscriptionSuffix) return username;") || !strings.Contains(script.Body.String(), "return `${encodeURIComponent(client.subscriptionSuffix)}/${username}`;") || !strings.Contains(script.Body.String(), "item.username === username") {
 		t.Fatalf("client subscription script does not use the suffix-first identifier: %d %s", script.Code, script.Body.String())
-	}
-}
-
-func TestSubscriptionResponseAddsSingleTotalTrafficHint(t *testing.T) {
-	a := testApp(t)
-	if err := a.store.Update(func(state *config.State) error {
-		state.Inbounds = []config.Inbound{{ID: "hy2", Name: "hy2", Type: "hysteria2", Enabled: true, Port: 24443}}
-		state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}, UsedBytes: 3 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, ExpiresAt: "2099-09-18"}}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	w := request(t, a.Handler(), http.MethodGet, "/kota-sub/alice", nil, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("subscription status = %d", w.Code)
-	}
-	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "ss://") || !strings.HasPrefix(lines[1], "hy2://") {
-		t.Fatalf("unexpected subscription lines: %#v", lines)
-	}
-	uri, err := url.Parse(lines[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uri.Host != "127.0.0.1:1" || uri.Fragment != "总:100.0 MB 余:97.0 MB 到期:2099-09-18" {
-		t.Fatalf("unexpected traffic hint: host=%q fragment=%q", uri.Host, uri.Fragment)
-	}
-}
-
-func TestSubscriptionTrafficHintPrefersMonthlyLimit(t *testing.T) {
-	hint := subscriptionTrafficHint(config.Client{
-		TotalLimitBytes:   1000 * 1024 * 1024,
-		UsedBytes:         333 * 1024 * 1024,
-		MonthlyLimitBytes: 100 * 1024 * 1024,
-		MonthlyUsedBytes:  2 * 1024 * 1024,
-		ExpiresAt:         "2026-09-18",
-	})
-	uri, err := url.Parse(hint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uri.Fragment != "月:100.0 MB 余:98.0 MB 到期:2026-09-18" {
-		t.Fatalf("monthly traffic hint = %q", uri.Fragment)
 	}
 }
 
@@ -536,9 +491,6 @@ func TestProtocolLinksAndClientEdit(t *testing.T) {
 	}
 	for _, line := range strings.Split(raw, "\n") {
 		if strings.HasPrefix(line, "ss://") {
-			if strings.Contains(line, "@127.0.0.1:1#") {
-				continue
-			}
 			want := "ss://2022-blake3-aes-256-gcm:" + ss.ServerPassword + ":" + client.Credentials[ids[2]] + "@"
 			if !strings.HasPrefix(line, want) {
 				t.Fatalf("invalid SS2022 SIP022 URI: %s", line)
@@ -714,8 +666,18 @@ func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
 	if got := w.Header().Get("Subscription-Userinfo"); !strings.Contains(got, "upload=123") || !strings.Contains(got, "download=456") || !strings.Contains(got, "total=1073741824") || !strings.Contains(got, "expire=") {
 		t.Fatalf("subscription userinfo header: %q", got)
 	}
-	if got := w.Header().Get("Profile-Title"); got != "KotaUI · headeruser" {
+	if got := w.Header().Get("Profile-Title"); got != "headeruser" {
 		t.Fatalf("profile title: %q", got)
+	}
+	if got := w.Header().Get("Content-Disposition"); got != "" {
+		t.Fatalf("subscription must not force download: %q", got)
+	}
+	htmlReq := httptest.NewRequest(http.MethodGet, "/kota-sub/"+clientSubscriptionID(headerClient), nil)
+	htmlReq.Header.Set("User-Agent", "Mozilla/5.0")
+	htmlRec := httptest.NewRecorder()
+	h.ServeHTTP(htmlRec, htmlReq)
+	if htmlRec.Code != http.StatusOK || !strings.Contains(htmlRec.Body.String(), "<html") || htmlRec.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("browser subscription page: %d %q %s", htmlRec.Code, htmlRec.Header().Get("Content-Disposition"), htmlRec.Body.String())
 	}
 	for _, endpoint := range []string{"/api/logs/panel", "/api/certificate/renew"} {
 		w = request(t, h, http.MethodPost, endpoint, nil, nil)
@@ -847,7 +809,7 @@ func TestClientCreateAcceptsDurationExpiry(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create duration client: %d %s", w.Code, w.Body.String())
 	}
-	want := time.Now().In(time.Local).AddDate(0, 0, 1).Format("2006-01-02")
+	want := time.Now().In(config.PanelLocation).AddDate(0, 0, 1).Format("2006-01-02")
 	if got := a.store.Snapshot().Clients[0].ExpiresAt; got != want {
 		t.Fatalf("duration expiry = %q, want %q", got, want)
 	}
@@ -893,5 +855,53 @@ func TestServiceCommandSelectsOpenRC(t *testing.T) {
 	command := serviceCommand("kotaui-singbox", "restart")
 	if len(command.Args) != 3 || command.Args[0] != "rc-service" || command.Args[1] != "kotaui-singbox" || command.Args[2] != "restart" {
 		t.Fatalf("unexpected OpenRC command %#v", command.Args)
+	}
+}
+
+func TestSubscriptionBodyHasOnlyProtocolLinks(t *testing.T) {
+	a := testApp(t)
+	if err := a.store.Update(func(state *config.State) error {
+		state.Inbounds = []config.Inbound{{ID: "hy2", Name: "hy2", Type: "hysteria2", Enabled: true, Port: 24443}}
+		state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w := request(t, a.Handler(), http.MethodGet, "/kota-sub/alice", nil, nil)
+	if w.Code != http.StatusOK || !strings.HasPrefix(strings.TrimSpace(w.Body.String()), "hy2://") || strings.Contains(w.Body.String(), "@127.0.0.1:1") {
+		t.Fatalf("subscription body: %d %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Profile-Title"); got != "alice" {
+		t.Fatalf("profile title: %q", got)
+	}
+}
+
+func TestInboundPortRejectsReservedServices(t *testing.T) {
+	a := testApp(t)
+	w := request(t, a.Handler(), http.MethodPost, "/api/inbounds", map[string]any{"name": "clash", "type": "hysteria2", "port": 1109, "sni": "example.test"}, login(t, a))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("reserved port should be rejected: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteInboundDetachesClients(t *testing.T) {
+	a := testApp(t)
+	h, cookie := a.Handler(), login(t, a)
+	w := request(t, h, http.MethodPost, "/api/inbounds", map[string]any{"name": "hy2", "type": "hysteria2", "port": 24443, "sni": "example.test"}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create inbound: %d %s", w.Code, w.Body.String())
+	}
+	var inbound config.Inbound
+	_ = json.Unmarshal(w.Body.Bytes(), &inbound)
+	w = request(t, h, http.MethodPost, "/api/clients", map[string]any{"username": "alice", "inboundIds": []string{inbound.ID}}, cookie)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create client: %d %s", w.Code, w.Body.String())
+	}
+	w = request(t, h, http.MethodDelete, "/api/inbounds/"+inbound.ID, nil, cookie)
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete inbound: %d %s", w.Code, w.Body.String())
+	}
+	if len(a.store.Snapshot().Clients[0].InboundIDs) != 0 {
+		t.Fatal("client still bound to deleted inbound")
 	}
 }

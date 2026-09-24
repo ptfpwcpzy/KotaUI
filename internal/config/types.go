@@ -11,6 +11,15 @@ import (
 
 const Version = "1.0.0"
 
+// PanelLocation is the calendar timezone used for client expiry dates.
+var PanelLocation = func() *time.Location {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return location
+}()
+
 type Runtime struct {
 	DataDir          string
 	Listen           string
@@ -33,7 +42,15 @@ type State struct {
 	Inbounds        []Inbound                  `json:"inbounds"`
 	Clients         []Client                   `json:"clients"`
 	TrafficCounters map[string]TrafficCounters `json:"trafficCounters,omitempty"`
+	DailyUsage      []DailyUsage               `json:"dailyUsage,omitempty"`
+	DailyDate       string                     `json:"dailyDate,omitempty"`
+	DailyAnchor     int64                      `json:"dailyAnchor,omitempty"`
 	Created         time.Time                  `json:"created"`
+}
+
+type DailyUsage struct {
+	Date  string `json:"date"`
+	Bytes int64  `json:"bytes"`
 }
 
 type TrafficCounters struct {
@@ -187,7 +204,7 @@ func (c Client) Active(now time.Time) bool {
 		return false
 	}
 	if c.ExpiresAt != "" {
-		if expiry, err := time.ParseInLocation("2006-01-02", c.ExpiresAt, time.Local); err != nil || !now.Before(expiry.AddDate(0, 0, 1)) {
+		if expiry, err := time.ParseInLocation("2006-01-02", c.ExpiresAt, PanelLocation); err != nil || !now.Before(expiry.AddDate(0, 0, 1)) {
 			return false
 		}
 	}
