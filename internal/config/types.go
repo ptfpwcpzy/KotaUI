@@ -42,7 +42,15 @@ type State struct {
 	Inbounds        []Inbound                  `json:"inbounds"`
 	Clients         []Client                   `json:"clients"`
 	TrafficCounters map[string]TrafficCounters `json:"trafficCounters,omitempty"`
+	DailyUsage      []DailyUsage               `json:"dailyUsage,omitempty"`
+	DailyDate       string                     `json:"dailyDate,omitempty"`
+	DailyAnchor     int64                      `json:"dailyAnchor,omitempty"`
 	Created         time.Time                  `json:"created"`
+}
+
+type DailyUsage struct {
+	Date  string `json:"date"`
+	Bytes int64  `json:"bytes"`
 }
 
 type TrafficCounters struct {
