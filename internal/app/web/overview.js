@@ -18,60 +18,24 @@
       .sort((a, b) => new Date(b.checkedAt) - new Date(a.checkedAt))[0];
   }
 
-  function median(values) {
-    const sorted = values.slice().sort((a, b) => a - b);
-    if (!sorted.length) return null;
-    const middle = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-  }
-
   function displaySeries(targetID, start, end) {
-    const bucketMs = 5 * 60 * 1000;
-    const buckets = new Map();
-    pingData.samples
+    return pingData.samples
       .filter(sample => sample.targetId === targetID)
-      .forEach(sample => {
-        const time = new Date(sample.checkedAt).getTime();
-        if (!Number.isFinite(time) || time < start || time > end) return;
-        const bucket = Math.floor(time / bucketMs) * bucketMs;
-        const entry = buckets.get(bucket) || { values: [], received: 0 };
-        if (sample.received > 0 && Number.isFinite(sample.avgMs)) entry.values.push(sample.avgMs);
-        entry.received += sample.received || 0;
-        buckets.set(bucket, entry);
-      });
-
-    return [...buckets.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([time, entry]) => ({ time, value: entry.values.length ? median(entry.values) : null }));
+      .map(sample => ({
+        time: new Date(sample.checkedAt).getTime(),
+        value: sample.received > 0 && Number.isFinite(sample.avgMs) ? sample.avgMs : null,
+      }))
+      .filter(point => Number.isFinite(point.time) && point.time >= start && point.time <= end)
+      .sort((a, b) => a.time - b.time);
   }
 
-  function smoothSeries(series) {
-    const valid = series.map((point, index) => ({ point, index })).filter(item => item.point.value !== null);
-    if (valid.length < 3) return series;
-    return series.map((point, index) => {
-      if (point.value === null) return point;
-      const nearby = valid
-        .filter(item => Math.abs(item.index - index) <= 2)
-        .map(item => item.point.value);
-      return { ...point, value: median(nearby) };
-    });
-  }
-
-  function monotonePath(points, x, y) {
-    if (points.length < 2) return points.length ? `M${x(points[0].time)},${y(points[0].value)}` : '';
-    const coordinates = points.map(point => [x(point.time), y(point.value)]);
-    const slopes = coordinates.map((point, index) => {
-      if (index === 0) return (coordinates[1][1] - point[1]) / Math.max(1, coordinates[1][0] - point[0]);
-      if (index === coordinates.length - 1) return (point[1] - coordinates[index - 1][1]) / Math.max(1, point[0] - coordinates[index - 1][0]);
-      const left = (point[1] - coordinates[index - 1][1]) / Math.max(1, point[0] - coordinates[index - 1][0]);
-      const right = (coordinates[index + 1][1] - point[1]) / Math.max(1, coordinates[index + 1][0] - point[0]);
-      return left * right <= 0 ? 0 : (left + right) / 2;
-    });
-    let path = `M${coordinates[0][0]},${coordinates[0][1]}`;
-    for (let index = 0; index < coordinates.length - 1; index += 1) {
-      const current = coordinates[index], next = coordinates[index + 1];
-      const dx = next[0] - current[0];
-      path += ` C${current[0] + dx / 3},${current[1] + slopes[index] * dx / 3} ${next[0] - dx / 3},${next[1] - slopes[index + 1] * dx / 3} ${next[0]},${next[1]}`;
+  function stepPath(points, x, y) {
+    if (!points.length) return '';
+    let path = `M${x(points[0].time)},${y(points[0].value)}`;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      path += ` L${x(current.time)},${y(previous.value)} L${x(current.time)},${y(current.value)}`;
     }
     return path;
   }
@@ -84,16 +48,12 @@
     const top = mobile ? 16 : 24, bottom = mobile ? 36 : 44;
     const innerW = width - left - right, innerH = height - top - bottom;
     const now = Date.now(), start = now - 24 * 60 * 60 * 1000;
-    const values = pingData.samples.map(sample => sample.avgMs).filter(value => Number.isFinite(value) && value >= 0);
-    // Use the 95th percentile for the axis so one transient timeout or spike
-    // does not compress an otherwise normal 24-hour latency chart.
-    const sortedValues = [...values].sort((a, b) => a - b);
-    const percentile95 = sortedValues.length
-      ? sortedValues[Math.min(sortedValues.length - 1, Math.ceil(sortedValues.length * 0.95) - 1)]
-      : 0;
-    const representativeMax = Math.max(10, percentile95);
-    const ranges = [100, 200, 500];
-    const yMax = ranges.find(range => representativeMax <= range) || Math.ceil(representativeMax / 100) * 100;
+    const seriesByTarget = pingData.targets.map(target => displaySeries(target.id, start, now));
+    const values = seriesByTarget.flatMap(series => series
+      .filter(point => point.value !== null)
+      .map(point => point.value));
+    const maximum = Math.max(10, ...(values.length ? values : [100]));
+    const yMax = maximum <= 100 ? 100 : maximum <= 200 ? 200 : 500;
     const x = time => left + Math.max(0, Math.min(1, (time - start) / (now - start))) * innerW;
     const y = value => top + innerH - (Math.max(0, value) / yMax) * innerH;
     let svg = `<svg class="nq-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="24小时延迟趋势"><style>text{font-family:Arial,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;font-weight:400;letter-spacing:0;text-rendering:geometricPrecision}</style>`;
@@ -109,10 +69,10 @@
     });
     pingData.targets.forEach((target, index) => {
       if (hiddenTargets.has(target.id)) return;
-      const series = smoothSeries(displaySeries(target.id, start, now));
+      const series = seriesByTarget[index];
       let segment = [];
       const flush = () => {
-        if (segment.length) svg += `<path d="${monotonePath(segment, x, y)}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+        if (segment.length) svg += `<path d="${stepPath(segment, x, y)}" fill="none" stroke="${colors[index % colors.length]}" stroke-width="1.2" stroke-linecap="square" stroke-linejoin="miter"/>`;
         segment = [];
       };
       series.forEach(point => {
