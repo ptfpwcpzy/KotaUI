@@ -669,6 +669,16 @@ func TestSubscriptionHeadersAndMaintenanceAuthentication(t *testing.T) {
 	if got := w.Header().Get("Profile-Title"); got != "headeruser" {
 		t.Fatalf("profile title: %q", got)
 	}
+	if got := w.Header().Get("Content-Disposition"); got != "" {
+		t.Fatalf("subscription must not force download: %q", got)
+	}
+	htmlReq := httptest.NewRequest(http.MethodGet, "/kota-sub/"+clientSubscriptionID(headerClient), nil)
+	htmlReq.Header.Set("User-Agent", "Mozilla/5.0")
+	htmlRec := httptest.NewRecorder()
+	h.ServeHTTP(htmlRec, htmlReq)
+	if htmlRec.Code != http.StatusOK || !strings.Contains(htmlRec.Body.String(), "<html") || htmlRec.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("browser subscription page: %d %q %s", htmlRec.Code, htmlRec.Header().Get("Content-Disposition"), htmlRec.Body.String())
+	}
 	for _, endpoint := range []string{"/api/logs/panel", "/api/certificate/renew"} {
 		w = request(t, h, http.MethodPost, endpoint, nil, nil)
 		if endpoint == "/api/logs/panel" {

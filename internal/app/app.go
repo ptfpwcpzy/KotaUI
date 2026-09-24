@@ -598,7 +598,7 @@ func newClientCredentials(protocol string) (credential, tuicPassword string) {
 func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/clients/"), "/")
 	if len(parts) == 1 && parts[0] != "" && r.Method == http.MethodPatch {
-		var request clientExpiryRequest
+		var request clientCreateRequest
 		if err := decodeJSON(r, &request); err != nil {
 			badRequest(w, err)
 			return
@@ -667,7 +667,7 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func (a *App) updateClient(id string, request clientExpiryRequest) error {
+func (a *App) updateClient(id string, request clientCreateRequest) error {
 	return a.mutate(func(s *config.State) error {
 		var target *config.Client
 		for i := range s.Clients {
@@ -724,6 +724,19 @@ func (a *App) updateClient(id string, request clientExpiryRequest) error {
 		target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
 		target.ExpiresAt = incoming.ExpiresAt
 		target.MaxOnlineIPs = incoming.MaxOnlineIPs
+		if request.RandomSubscriptionSuffix != nil {
+			if *request.RandomSubscriptionSuffix {
+				if target.SubscriptionSuffix == "" {
+					suffix, err := uniqueSubscriptionSuffix(s.Clients, target.Username)
+					if err != nil {
+						return err
+					}
+					target.SubscriptionSuffix = suffix
+				}
+			} else {
+				target.SubscriptionSuffix = ""
+			}
+		}
 		if err := validateUniqueSubscriptionID(s.Clients, *target, id); err != nil {
 			return err
 		}
@@ -965,7 +978,6 @@ func (a *App) setSubscriptionHeaders(w http.ResponseWriter, client config.Client
 	w.Header().Set("Subscription-Userinfo", strings.Join(fields, "; "))
 	w.Header().Set("Profile-Title", client.Username)
 	w.Header().Set("profile-title", client.Username)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+client.Username+`"`)
 	w.Header().Set("Profile-Update-Interval", "12")
 	w.Header().Set("Profile-Web-Page-Url", subscriptionURL)
 }
