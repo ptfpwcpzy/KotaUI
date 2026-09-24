@@ -7,6 +7,8 @@
   const hiddenTargets = new Set();
   let pingData = { targets: [], samples: [] };
   let networkLoadPromise = null;
+  let networkRetryAt = 0;
+  let networkFailureCount = 0;
 
   const style = document.createElement('style');
   style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}`;
@@ -146,15 +148,27 @@
 
   async function loadNetwork() {
     if (networkLoadPromise) return networkLoadPromise;
+    if (Date.now() < networkRetryAt) return;
     networkLoadPromise = (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
       try {
-        const response = await fetch('/api/network-quality', { credentials: 'same-origin', cache: 'no-store' });
-        if (!response.ok) return;
+        const response = await fetch('/api/network-quality', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error(`network-quality: ${response.status}`);
         pingData = await response.json();
+        networkFailureCount = 0;
+        networkRetryAt = 0;
         const host = ensureNetworkHost();
         if (host) renderNetwork(host);
-      } catch {}
-      finally { networkLoadPromise = null; }
+      } catch {
+        // A direct route can temporarily stall while a proxy route works.
+        // Do not start another request every 2 seconds; retry with backoff.
+        networkFailureCount += 1;
+        networkRetryAt = Date.now() + Math.min(30000, 2000 * (2 ** Math.min(networkFailureCount - 1, 4)));
+      } finally {
+        clearTimeout(timeout);
+      }
+      networkLoadPromise = null;
     })();
     return networkLoadPromise;
   }

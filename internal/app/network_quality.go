@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -253,7 +255,26 @@ func (a *App) networkQuality(w http.ResponseWriter, r *http.Request) {
 	for _, target := range state.Settings.PingTargets {
 		targetIDs[target.ID] = true
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"targets": state.Settings.PingTargets, "samples": a.pings.snapshot(targetIDs, time.Now())})
+	value := map[string]any{"targets": state.Settings.PingTargets, "samples": a.pings.snapshot(targetIDs, time.Now())}
+	if strings.Contains(strings.ToLower(r.Header.Get("Accept-Encoding")), "gzip") {
+		body, err := json.Marshal(value)
+		if err == nil {
+			var compressed bytes.Buffer
+			writer := gzip.NewWriter(&compressed)
+			if _, err = writer.Write(body); err == nil {
+				err = writer.Close()
+			}
+			if err == nil {
+				w.Header().Set("content-type", "application/json; charset=utf-8")
+				w.Header().Set("content-encoding", "gzip")
+				w.Header().Add("vary", "Accept-Encoding")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(compressed.Bytes())
+				return
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, value)
 }
 
 func (a *App) pingTargetAction(w http.ResponseWriter, r *http.Request) {
