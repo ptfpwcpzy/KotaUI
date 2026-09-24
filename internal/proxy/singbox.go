@@ -77,20 +77,10 @@ func Write(state config.State, runtime config.Runtime) error {
 	if strategy := state.Settings.OutboundStrategy; strategy != "" && strategy != "auto" {
 		directOutbound["domain_strategy"] = strategy
 	}
-	outbounds := []map[string]any{directOutbound}
-	panelPort := listenPort(runtime.Listen)
-	if runtime.Domain != "" && panelPort > 0 {
-		outbounds = append(outbounds, map[string]any{
-			"type":             "direct",
-			"tag":              "panel-local",
-			"override_address": "127.0.0.1",
-			"override_port":    panelPort,
-		})
-	}
 	root := map[string]any{
 		"log":       map[string]any{"level": "warn", "timestamp": true},
 		"inbounds":  inbounds,
-		"outbounds": outbounds,
+		"outbounds": []map[string]any{directOutbound},
 		"experimental": map[string]any{
 			"v2ray_api": map[string]any{
 				"listen": fmt.Sprintf("127.0.0.1:%d", runtime.StatsPort),
@@ -98,22 +88,16 @@ func Write(state config.State, runtime config.Runtime) error {
 			},
 		},
 	}
-	rules := []map[string]any{{"action": "sniff", "timeout": "300ms"}}
-	if runtime.Domain != "" && panelPort > 0 {
-		rules = append(rules, map[string]any{"domain": []string{runtime.Domain}, "outbound": "panel-local"})
-		rules = append(rules, map[string]any{"domain_suffix": []string{runtime.Domain}, "outbound": "panel-local"})
-		cidrs := publicAddressCIDRs()
-		if len(cidrs) > 0 {
-			rules = append(rules, map[string]any{"ip_cidr": cidrs, "port": panelPort, "outbound": "panel-local"})
+	if len(state.Settings.BlockedDomains) > 0 || state.Settings.BlockBitTorrent {
+		rules := []map[string]any{{"action": "sniff", "timeout": "300ms"}}
+		if len(state.Settings.BlockedDomains) > 0 {
+			rules = append(rules, map[string]any{"domain_suffix": state.Settings.BlockedDomains, "action": "reject"})
 		}
+		if state.Settings.BlockBitTorrent {
+			rules = append(rules, map[string]any{"protocol": []string{"bittorrent"}, "action": "reject"})
+		}
+		root["route"] = map[string]any{"rules": rules}
 	}
-	if len(state.Settings.BlockedDomains) > 0 {
-		rules = append(rules, map[string]any{"domain_suffix": state.Settings.BlockedDomains, "action": "reject"})
-	}
-	if state.Settings.BlockBitTorrent {
-		rules = append(rules, map[string]any{"protocol": []string{"bittorrent"}, "action": "reject"})
-	}
-	root["route"] = map[string]any{"rules": rules}
 	body, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
@@ -123,55 +107,6 @@ func Write(state config.State, runtime config.Runtime) error {
 		return err
 	}
 	return os.Rename(tmp, runtime.SingBoxConfig)
-}
-
-
-func publicAddressCIDRs() []string {
-	cidrs := []string{}
-	if ip := publicIPv6(); ip != "" {
-		cidrs = append(cidrs, ip+"/128")
-	}
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return cidrs
-	}
-	for _, iface := range interfaces {
-		addresses, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, address := range addresses {
-			var ip net.IP
-			switch value := address.(type) {
-			case *net.IPNet:
-				ip = value.IP
-			case *net.IPAddr:
-				ip = value.IP
-			}
-			if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
-				continue
-			}
-			if v4 := ip.To4(); v4 != nil {
-				cidrs = append(cidrs, v4.String()+"/32")
-			}
-		}
-	}
-	return cidrs
-}
-
-func listenPort(listen string) int {
-	listen = strings.TrimSpace(listen)
-	if listen == "" {
-		return 0
-	}
-	if _, port, err := net.SplitHostPort(listen); err == nil {
-		var value int
-		fmt.Sscanf(port, "%d", &value)
-		return value
-	}
-	var value int
-	fmt.Sscanf(listen, "%d", &value)
-	return value
 }
 
 func activeClients(clients []config.Client) []config.Client {
