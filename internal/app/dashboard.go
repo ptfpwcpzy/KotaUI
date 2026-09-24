@@ -5,6 +5,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -35,6 +36,66 @@ type healthHint struct {
 type publicNetworkAddresses struct {
 	IPv4 []string `json:"ipv4"`
 	IPv6 []string `json:"ipv6"`
+}
+
+func (a *App) publicNetworkLoop() {
+	a.refreshPublicNetwork()
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		a.refreshPublicNetwork()
+	}
+}
+
+func (a *App) refreshPublicNetwork() {
+	addresses := publicNetworkAddressesForHost()
+	if len(addresses.IPv4) == 0 {
+		if ip := fetchPublicIP("https://api.ipify.org"); ip != "" {
+			addresses.IPv4 = append(addresses.IPv4, ip)
+		}
+	}
+	if len(addresses.IPv6) == 0 {
+		if ip := fetchPublicIP("https://api6.ipify.org"); ip != "" {
+			addresses.IPv6 = append(addresses.IPv6, ip)
+		}
+	}
+	if len(addresses.IPv4) == 0 && len(addresses.IPv6) == 0 {
+		return
+	}
+	a.publicNetworkMu.Lock()
+	a.publicNetwork = addresses
+	a.publicNetworkMu.Unlock()
+}
+
+func (a *App) publicNetworkSnapshot() publicNetworkAddresses {
+	a.publicNetworkMu.RLock()
+	addresses := a.publicNetwork
+	a.publicNetworkMu.RUnlock()
+	if len(addresses.IPv4) == 0 && len(addresses.IPv6) == 0 {
+		return publicNetworkAddressesForHost()
+	}
+	return addresses
+}
+
+func fetchPublicIP(endpoint string) string {
+	client := &http.Client{Timeout: 3 * time.Second}
+	response, err := client.Get(endpoint)
+	if err != nil {
+		return ""
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 128))
+	if err != nil {
+		return ""
+	}
+	ip := net.ParseIP(strings.TrimSpace(string(body)))
+	if !isPublicHostIP(ip) {
+		return ""
+	}
+	return ip.String()
 }
 
 const onlineActivityWindow = 20 * time.Second
