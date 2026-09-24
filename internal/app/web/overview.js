@@ -6,7 +6,7 @@
   const colors = ['#3671ef', '#12af7f', '#7a61e8', '#d19524', '#de5b65', '#4aa8c4'];
   const hiddenTargets = new Set();
   let pingData = { targets: [], samples: [] };
-  let networkLoaded = false;
+  let networkLoadPromise = null;
 
   const style = document.createElement('style');
   style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}`;
@@ -29,6 +29,31 @@
       .sort((a, b) => a.time - b.time);
   }
 
+  // Keep the SVG light on mobile while retaining local min/max points so a
+  // short latency spike is not smoothed away by downsampling.
+  function compactSeries(points, limit) {
+    if (points.length <= limit) return points;
+    const result = [];
+    const bucketSize = (points.length - 1) / Math.max(1, limit - 1);
+    for (let bucket = 0; bucket < limit; bucket += 1) {
+      const from = Math.floor(bucket * bucketSize);
+      const to = Math.min(points.length, Math.max(from + 1, Math.floor((bucket + 1) * bucketSize)));
+      const candidates = points.slice(from, to);
+      if (!candidates.length) continue;
+      const chosen = [candidates[0], candidates[candidates.length - 1]];
+      const valid = candidates.filter(point => point.value !== null);
+      if (valid.length) {
+        chosen.push(valid.reduce((a, b) => a.value < b.value ? a : b));
+        chosen.push(valid.reduce((a, b) => a.value > b.value ? a : b));
+      }
+      chosen.sort((a, b) => a.time - b.time).forEach(point => {
+        const previous = result[result.length - 1];
+        if (!previous || previous.time !== point.time || previous.value !== point.value) result.push(point);
+      });
+    }
+    return result;
+  }
+
   function stepPath(points, x, y) {
     if (!points.length) return '';
     let path = `M${x(points[0].time)},${y(points[0].value)}`;
@@ -48,7 +73,7 @@
     const top = mobile ? 16 : 24, bottom = mobile ? 36 : 44;
     const innerW = width - left - right, innerH = height - top - bottom;
     const now = Date.now(), start = now - 24 * 60 * 60 * 1000;
-    const seriesByTarget = pingData.targets.map(target => displaySeries(target.id, start, now));
+    const seriesByTarget = pingData.targets.map(target => compactSeries(displaySeries(target.id, start, now), mobile ? 240 : 720));
     const values = seriesByTarget.flatMap((series, index) => hiddenTargets.has(pingData.targets[index].id) ? [] : series
       .filter(point => point.value !== null)
       .map(point => point.value));
@@ -102,14 +127,36 @@
     });
   }
 
+  function ensureNetworkHost() {
+    const view = document.querySelector('#view');
+    if (!view) return null;
+    let host = document.querySelector('#network-quality-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'network-quality-host';
+      host.className = 'network-quality-host';
+    }
+    // The main dashboard is rebuilt by the metrics poller. Reinsert the host
+    // as a sibling every time instead of relying on a stale DOM reference.
+    if (host.parentNode !== view.parentNode || host.previousElementSibling !== view) {
+      view.insertAdjacentElement('afterend', host);
+    }
+    return host;
+  }
+
   async function loadNetwork() {
-    try {
-      const response = await fetch('/api/network-quality', { credentials: 'same-origin', cache: 'no-store' });
-      if (!response.ok) return;
-      pingData = await response.json();
-      const dashboard = document.querySelector('#network-quality-host');
-      if (dashboard) renderNetwork(dashboard);
-    } catch {}
+    if (networkLoadPromise) return networkLoadPromise;
+    networkLoadPromise = (async () => {
+      try {
+        const response = await fetch('/api/network-quality', { credentials: 'same-origin', cache: 'no-store' });
+        if (!response.ok) return;
+        pingData = await response.json();
+        const host = ensureNetworkHost();
+        if (host) renderNetwork(host);
+      } catch {}
+      finally { networkLoadPromise = null; }
+    })();
+    return networkLoadPromise;
   }
 
   window.nav = function overviewNav() {
@@ -120,19 +167,10 @@
     originalDashboard();
     document.querySelectorAll('[aria-label="返回仪表盘"]').forEach(element => element.setAttribute('aria-label', '返回概览'));
     document.querySelector('.dashboard-grid')?.querySelector('.address-strip')?.remove();
-    let host = document.querySelector('#network-quality-host');
-    if (!host) {
-      host = document.createElement('div');
-      host.id = 'network-quality-host';
-      host.className = 'network-quality-host';
-      document.querySelector('#view')?.insertAdjacentElement('afterend', host);
-    }
-    if (!networkLoaded) {
-      networkLoaded = true;
-      loadNetwork();
-    } else if (pingData.targets.length && !host.querySelector('.network-quality-card')) {
-      renderNetwork(host);
-    }
+    const host = ensureNetworkHost();
+    if (!host) return;
+    if (!host.querySelector('.network-quality-card') && (pingData.targets.length || !networkLoadPromise)) renderNetwork(host);
+    if (!pingData.targets.length && !networkLoadPromise) loadNetwork();
   };
 
   function renderSettingsTargets() {
