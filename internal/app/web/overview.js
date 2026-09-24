@@ -107,7 +107,7 @@
       const response = await fetch('/api/network-quality', { credentials: 'same-origin', cache: 'no-store' });
       if (!response.ok) return;
       pingData = await response.json();
-      const dashboard = document.querySelector('.dashboard-grid');
+      const dashboard = document.querySelector('#network-quality-host');
       if (dashboard) renderNetwork(dashboard);
     } catch {}
   }
@@ -120,12 +120,18 @@
     originalDashboard();
     document.querySelectorAll('[aria-label="返回仪表盘"]').forEach(element => element.setAttribute('aria-label', '返回概览'));
     document.querySelector('.dashboard-grid')?.querySelector('.address-strip')?.remove();
-    if (window.__dashboardRefreshInProgress) return;
+    let host = document.querySelector('#network-quality-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'network-quality-host';
+      host.className = 'network-quality-host';
+      document.querySelector('#view')?.insertAdjacentElement('afterend', host);
+    }
     if (!networkLoaded) {
       networkLoaded = true;
       loadNetwork();
-    } else if (pingData.targets.length) {
-      renderNetwork(document.querySelector('.dashboard-grid'));
+    } else if (pingData.targets.length && !host.querySelector('.network-quality-card')) {
+      renderNetwork(host);
     }
   };
 
