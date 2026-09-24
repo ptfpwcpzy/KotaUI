@@ -349,7 +349,13 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"activeClients":       active,
 		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
 		"panelUptime":         int64(time.Since(a.startedAt).Seconds()),
-		"coreUptime":          recordedUptime("/run/kotaui-singbox.started", time.Now()),
+		"coreUptime": func() int64 {
+			u := recordedUptime("/run/kotaui-singbox.started", time.Now())
+			if u == 0 && serviceRunning("kotaui-singbox") {
+				return 1
+			}
+			return u
+		}(),
 		"inboundCount":        len(s.Inbounds),
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,
