@@ -255,7 +255,15 @@ func (a *App) networkQuality(w http.ResponseWriter, r *http.Request) {
 	for _, target := range state.Settings.PingTargets {
 		targetIDs[target.ID] = true
 	}
-	value := map[string]any{"targets": state.Settings.PingTargets, "samples": a.pings.snapshot(targetIDs, time.Now())}
+	targets := state.Settings.PingTargets
+	if targets == nil {
+		targets = []config.PingTarget{}
+	}
+	samples := a.pings.snapshot(targetIDs, time.Now())
+	if samples == nil {
+		samples = []pingSample{}
+	}
+	value := map[string]any{"targets": targets, "samples": samples}
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept-Encoding")), "gzip") {
 		body, err := json.Marshal(value)
 		if err == nil {
