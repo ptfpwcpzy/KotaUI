@@ -168,6 +168,8 @@ acquire_certificate(){
 }
 
 install_program(){
+  install -d -m 700 /var/tmp/kotaui-build
+  export TMPDIR=/var/tmp/kotaui-build GOTMPDIR=/var/tmp/kotaui-build
   if [ -z "$SOURCE_DIR" ]; then SOURCE_DIR=$(mktemp -d); trap 'rm -rf "$SOURCE_DIR"' EXIT; git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$SOURCE_DIR"; fi
   [ -f "$SOURCE_DIR/go.mod" ] || fail '未找到 KotaUI Go 源码。'
   step '5 / 6' '构建 KotaUI 与用户流量统计核心'
