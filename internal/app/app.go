@@ -125,7 +125,6 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/logs/", a.auth(a.logs))
 	mux.HandleFunc("/assets/overview.css", embeddedAsset("web/overview.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/overview.js", embeddedAsset("web/overview.js", "application/javascript; charset=utf-8"))
-	mux.HandleFunc("/assets/home-extras.js", embeddedAsset("web/home-extras.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-subscription.js", embeddedAsset("web/client-subscription.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/client-expiry.css", embeddedAsset("web/client-expiry.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/tuic.css", embeddedAsset("web/tuic.css", "text/css; charset=utf-8"))
@@ -352,13 +351,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"activeClients": active,
 		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
 		"panelUptime":   int64(time.Since(a.startedAt).Seconds()),
-		"coreUptime": func() int64 {
-			u := recordedUptime("/run/kotaui-singbox.started", time.Now())
-			if u == 0 && serviceRunning("kotaui-singbox") {
-				return 1
-			}
-			return u
-		}(),
+		"coreUptime":         coreUptimeSeconds(time.Now()),
 		"inboundCount":        len(s.Inbounds),
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,

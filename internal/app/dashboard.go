@@ -116,6 +116,37 @@ func recordedUptime(path string, now time.Time) int64 {
 	return int64(elapsed.Seconds())
 }
 
+func coreUptimeSeconds(now time.Time) int64 {
+	if u := recordedUptime("/run/kotaui-singbox.started", now); u > 0 {
+		return u
+	}
+	if stamp := serviceActiveUnix("kotaui-singbox"); stamp > 0 {
+		elapsed := now.Unix() - stamp
+		if elapsed > 0 {
+			return elapsed
+		}
+	}
+	if serviceRunning("kotaui-singbox") {
+		return 1
+	}
+	return 0
+}
+
+func serviceActiveUnix(unit string) int64 {
+	if !systemdAvailable() {
+		return 0
+	}
+	out, err := exec.Command("systemctl", "show", unit, "--property=ActiveEnterTimestampUSec", "--value").Output()
+	if err != nil {
+		return 0
+	}
+	usec, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil || usec <= 0 {
+		return 0
+	}
+	return usec / 1_000_000
+}
+
 func recentOnlineUsers(clients []config.Client, now time.Time) []map[string]any {
 	users := make([]config.Client, 0, 5)
 	for _, client := range clients {
