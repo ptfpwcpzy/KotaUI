@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	pingInterval   = time.Minute
+	pingInterval   = 2 * time.Minute
 	pingTimeout    = 2 * time.Second
 	pingSamples    = 2
 	pingHistoryTTL = 24 * time.Hour
