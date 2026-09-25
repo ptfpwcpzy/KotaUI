@@ -195,7 +195,7 @@
     const card = document.createElement('section');
     card.className = 'card section ping-settings-card';
     card.style.marginTop = '18px';
-    card.innerHTML = `<div class="section-head"><div><h2>网络质量监测</h2><p class="sub">每分钟从 VPS 向目标发送 3 次 Ping，保留最近 24 小时数据。</p></div></div><form class="fields" id="ping-target-form"><label>名称<input name="name" required maxlength="40" placeholder="例如：电信"></label><label>IP 或域名<input name="address" required maxlength="253" placeholder="例如：1.1.1.1 或 example.com"></label><div class="full"><button class="primary" type="submit">添加监测目标</button></div></form><div class="nq-target-list" id="ping-target-list"></div>`;
+    card.innerHTML = `<div class="section-head"><div><h2>网络质量监测</h2><p class="sub">每分钟从 VPS 向目标发送 2 次 Ping，保留最近 24 小时数据。</p></div></div><form class="fields" id="ping-target-form"><label>名称<input name="name" required maxlength="40" placeholder="例如：电信"></label><label>IP 或域名<input name="address" required maxlength="253" placeholder="例如：1.1.1.1 或 example.com"></label><div class="full"><button class="primary" type="submit">添加监测目标</button></div></form><div class="nq-target-list" id="ping-target-list"></div>`;
     form.closest('.card')?.insertAdjacentElement('afterend', card);
     card.querySelector('#ping-target-form').onsubmit = async event => {
       event.preventDefault();
@@ -204,7 +204,7 @@
         const response = await fetch('/api/network-quality/targets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
         const body = await response.json();
         if (!response.ok) throw Error(body.error || '添加失败');
-        event.target.reset(); toast('监测目标已添加'); renderSettingsTargets();
+        event.target.reset(); toast('监测目标已添加'); loadTargetList(card);
       } catch (error) { toast(error.message); }
     };
     loadTargetList(card);
@@ -216,11 +216,12 @@
       if (!response.ok) return;
       const data = await response.json();
       const list = card.querySelector('#ping-target-list');
-      list.innerHTML = data.targets.map(target => `<div class="nq-target-row"><div><b>${window.esc(target.name)}</b><small>${window.esc(target.address)}</small></div><button data-delete-ping="${target.id}">删除</button></div>`).join('') || '<div class="nq-empty">尚未添加监测目标</div>';
+      const targets = data.targets || [];
+      list.innerHTML = targets.map(target => `<div class="nq-target-row"><div><b>${window.esc(target.name)}</b><small>${window.esc(target.address)}</small></div><button data-delete-ping="${target.id}">删除</button></div>`).join('') || '<div class="nq-empty">尚未添加监测目标</div>';
       list.querySelectorAll('[data-delete-ping]').forEach(button => button.onclick = async () => {
         if (!confirm('确定删除这个监测目标及其历史数据吗？')) return;
         await fetch('/api/network-quality/targets/' + button.dataset.deletePing, { method: 'DELETE' });
-        renderSettingsTargets();
+        loadTargetList(card);
       });
     } catch {}
   }
