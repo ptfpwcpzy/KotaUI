@@ -25,9 +25,9 @@ import (
 const (
 	pingInterval   = time.Minute
 	pingTimeout    = 2 * time.Second
-	pingSamples    = 3
+	pingSamples    = 2
 	pingHistoryTTL = 24 * time.Hour
-	maxPingTargets = 32
+	maxPingTargets = 8
 )
 
 type pingSample struct {
