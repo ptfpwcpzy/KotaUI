@@ -135,9 +135,8 @@ install_packages(){
   case "${ID:-}" in
     alpine)
       if ! apk add --no-cache ca-certificates curl git certbot openssl iputils python3 py3-pip py3-virtualenv; then fail '安装运行环境失败。请执行 df -h 查看磁盘是否已满，清理后再重新安装。'; fi
-      if ! apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community sing-box; then fail '安装 sing-box 失败。请执行 df -h 查看磁盘是否已满。'; fi
       ;;
-    debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl iputils-ping python3 python3-venv python3-pip; if ! command -v sing-box >/dev/null 2>&1; then curl -fsSL https://sing-box.app/install.sh | sh; fi ;;
+    debian|ubuntu) apt-get update -qq; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl git golang-go certbot openssl iputils-ping python3 python3-venv python3-pip ;;
     *) fail '当前仅支持 Alpine、Debian 和 Ubuntu。';;
   esac
   ok '运行环境与 sing-box 核心已准备。'
