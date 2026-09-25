@@ -57,8 +57,6 @@ type App struct {
 	sniProbe            sniProbeFunc
 	loginMu             sync.Mutex
 	loginFails          map[string]loginAttempt
-	publicNetworkMu     sync.RWMutex
-	publicNetwork       publicNetworkAddresses
 }
 
 type loginAttempt struct {
@@ -148,7 +146,6 @@ func (a *App) startBackgroundTasks() {
 	a.backgroundOnce.Do(func() {
 		go a.syncTrafficLoop()
 		go a.networkQualityLoop()
-		go a.publicNetworkLoop()
 	})
 }
 
@@ -361,7 +358,6 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"certificate":         certificate,
 		"services":            services,
 		"healthHints":         dashboardHints(s, certificate, services),
-		"network":             a.publicNetworkSnapshot(),
 		"dailyTraffic":        lastSevenDays(s, time.Now()),
 	})
 }
