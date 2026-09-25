@@ -6,7 +6,7 @@
   document.head.append(style);
   document.body.classList.add('subscription-theme');
   const themeStyle = document.createElement('style');
-  themeStyle.textContent = `.subscription-theme{background:linear-gradient(180deg,#f1f5ff 0,#f5f8fc 280px,#f5f8fc 100%)!important;color:#15223a}.subscription-theme .globe-stage{background:transparent!important}.subscription-theme .gauge-card,.subscription-theme .week-card{background:#fff!important;border:1px solid #e4ebf4!important;border-radius:22px!important;box-shadow:0 14px 34px #2334510c!important}.subscription-theme .gauge-card .gauge-grid{background:transparent}.subscription-theme .network-quality-card{background:#fff!important;border-color:#e4ebf4!important}`;
+  themeStyle.textContent = `.subscription-theme{background:linear-gradient(180deg,#f1f5ff 0,#f5f8fc 280px,#f5f8fc 100%)!important;color:#15223a}.subscription-theme .globe-stage{background:transparent!important}.subscription-theme .gauge-card,.subscription-theme .week-card{background:#fff!important;border:1px solid #e4ebf4!important;border-radius:22px!important;box-shadow:0 14px 34px #2334510c!important}.subscription-theme .gauge-card .gauge-grid{background:transparent}.subscription-theme .network-quality-card{background:#fff!important;border-color:#e4ebf4!important}.subscription-theme .dashboard-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,.7fr);gap:18px;align-items:start}.subscription-theme #home-globe{grid-column:1;grid-row:1}.subscription-theme .gauge-card{grid-column:2;grid-row:1;margin-top:0!important;align-self:start}.subscription-theme .gauge-card .gauge-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.subscription-theme .gauge-card .dial{width:124px;height:124px}.subscription-theme .gauge-card .dial:before{inset:14px}.subscription-theme .gauge-card .dial b{font-size:18px}.subscription-theme .dashboard-main-grid,.subscription-theme .dashboard-strips,.subscription-theme .dashboard-notice,.subscription-theme #home-week{grid-column:1/-1}@media(max-width:1000px){.subscription-theme .dashboard-grid{display:block}.subscription-theme .gauge-card{margin-top:10px!important}.subscription-theme .gauge-card .gauge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.subscription-theme .gauge-card .dial{width:112px;height:112px}.subscription-theme .gauge-card .dial:before{inset:13px}}`;
   document.head.append(themeStyle);
   const esc = window.esc || (value => String(value));
   const state = { rotation: 0, last: 0 };
@@ -53,9 +53,16 @@
     const glow = ctx.createRadialGradient(cx, cy, radius * .68, cx, cy, radius * 1.1); glow.addColorStop(0, '#fff'); glow.addColorStop(.72, '#ffffffd0'); glow.addColorStop(1, '#c7f0df00');
     ctx.beginPath(); ctx.arc(cx, cy, radius * 1.08, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
     ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
-    const points = LAND_POINTS.map((p, i) => organicDot(p, i, state.rotation, radius, cx, cy)).filter(Boolean).sort((a,b) => a.z - b.z);
-    const dot = Math.max(1.05, radius / 115);
-    for (const p of points) { if (p.z <= 0) continue; ctx.beginPath(); ctx.arc(p.x, p.y, dot, 0, Math.PI * 2); ctx.fillStyle = pointColor(p.z); ctx.fill(); }
+    const bands = new Map();
+    LAND_POINTS.forEach((point, i) => { const latitude = point[1], key = latitude.toFixed(1); if (!bands.has(key)) bands.set(key, []); bands.get(key).push(point); });
+    for (const band of bands.values()) {
+      band.sort((a, b) => a[0] - b[0]);
+      for (let i = 0; i < band.length - 1; i++) {
+        const a = organicDot(band[i], i, state.rotation, radius, cx, cy), b = organicDot(band[i + 1], i + 1, state.rotation, radius, cx, cy);
+        if (!a || !b || a.z <= .02 || b.z <= .02 || Math.abs(a.x - b.x) > radius * .12) continue;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.strokeStyle = `rgba(35,161,113,${Math.max(.12, .26 + Math.min(a.z, b.z) * .28)})`; ctx.lineWidth = Math.max(1.05, radius / 150); ctx.lineCap = 'round'; ctx.stroke();
+      }
+    }
     const dash = window.dash || {}, users = (dash.onlineUsers || []).slice(0, 20), sp = serverPoint(dash), server = sp ? project(sp.lon, sp.lat, state.rotation, radius, cx, cy) : null;
     const serverVisible = Boolean(server && server.z > .06);
     const visible = users.map((user, i) => { const q=userPoint(user,i); return q ? { user, p: project(q.lon,q.lat,state.rotation,radius,cx,cy) } : null; }).filter(x => x && x.p.z > .06);
