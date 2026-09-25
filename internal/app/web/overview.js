@@ -196,7 +196,7 @@
     card.className = 'card section ping-settings-card';
     card.style.marginTop = '18px';
     card.innerHTML = `<div class="section-head"><div><h2>网络质量监测</h2><p class="sub">每分钟从 VPS 向目标发送 2 次 Ping，保留最近 24 小时数据。</p></div></div><form class="fields" id="ping-target-form"><label>名称<input name="name" required maxlength="40" placeholder="例如：电信"></label><label>IP 或域名<input name="address" required maxlength="253" placeholder="例如：1.1.1.1 或 example.com"></label><div class="full"><button class="primary" type="submit">添加监测目标</button></div></form><div class="nq-target-list" id="ping-target-list"></div>`;
-    form.closest('.card')?.insertAdjacentElement('afterend', card);
+    (form.closest('.list') || form.closest('.card')?.parentElement)?.append(card);
     card.querySelector('#ping-target-form').onsubmit = async event => {
       event.preventDefault();
       const data = Object.fromEntries(new FormData(event.target));
