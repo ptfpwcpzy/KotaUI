@@ -7,6 +7,9 @@ SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git
 # 集中维护运行协议与用户流量统计所需的 sing-box 编译能力；新增可选协议时只需在此补充对应标签。
 BUILD_TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic}
 GO_BIN=${KOTAUI_GO_BIN:-go}
+install -d -m 700 /var/tmp/kotaui-build
+export TMPDIR=/var/tmp/kotaui-build
+export GOTMPDIR=/var/tmp/kotaui-build
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
