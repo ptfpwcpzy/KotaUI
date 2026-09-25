@@ -34,11 +34,8 @@ type healthHint struct {
 }
 
 type publicNetworkAddresses struct {
-	IPv4        []string `json:"ipv4"`
-	IPv6        []string `json:"ipv6"`
-	Latitude    float64  `json:"latitude,omitempty"`
-	Longitude   float64  `json:"longitude,omitempty"`
-	CountryCode string   `json:"countryCode,omitempty"`
+	IPv4 []string `json:"ipv4"`
+	IPv6 []string `json:"ipv6"`
 }
 
 func (a *App) publicNetworkLoop() {
@@ -66,9 +63,6 @@ func (a *App) refreshPublicNetwork() {
 		return
 	}
 	a.publicNetworkMu.Lock()
-	addresses.Latitude = a.publicNetwork.Latitude
-	addresses.Longitude = a.publicNetwork.Longitude
-	addresses.CountryCode = a.publicNetwork.CountryCode
 	a.publicNetwork = addresses
 	a.publicNetworkMu.Unlock()
 }
