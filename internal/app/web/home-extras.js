@@ -17,9 +17,11 @@
   function pointColor(z) { return `rgba(35,161,113,${Math.max(.18, .36 + z * .45)})`; }
   function flag(code) { return code ? String(code).toUpperCase().replace(/[A-Z]/g, c => String.fromCodePoint(127397 + c.charCodeAt(0))) : ''; }
   function organicDot(point, index, rotation, radius, cx, cy) {
-    const latitude = point[1], wave = Math.sin(point[0] * 12.9898 + latitude * 78.233 + index * 0.17) * 43758.5453;
-    const seed = wave - Math.floor(wave), amount = Math.abs(latitude) > 42 ? .55 : .18;
-    const lon = point[0] + (seed - .5) * amount, lat = latitude + (Math.sin(index * 2.17 + point[0]) * .5) * amount;
+    const latitude = point[1], row = Math.round((latitude + 90) / 1.8), wave = Math.sin(point[0] * 12.9898 + latitude * 78.233 + index * 0.17) * 43758.5453;
+    const seed = wave - Math.floor(wave), amount = Math.abs(latitude) > 42 ? .72 : .42;
+    if (seed < .075 && (Math.abs(latitude) > 45 || Math.abs(point[0]) > 135)) return null;
+    const stagger = row % 2 ? .48 : -.08;
+    const lon = point[0] + stagger + (seed - .5) * amount, lat = latitude + (Math.sin(index * 2.17 + point[0]) * .65) * amount;
     return project(lon, lat, rotation, radius, cx, cy);
   }
   function userPoint(user, index) {
@@ -47,7 +49,7 @@
     const glow = ctx.createRadialGradient(cx, cy, radius * .68, cx, cy, radius * 1.1); glow.addColorStop(0, '#fff'); glow.addColorStop(.72, '#ffffffd0'); glow.addColorStop(1, '#c7f0df00');
     ctx.beginPath(); ctx.arc(cx, cy, radius * 1.08, 0, Math.PI * 2); ctx.fillStyle = glow; ctx.fill();
     ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
-    const points = LAND_POINTS.map((p, i) => organicDot(p, i, state.rotation, radius, cx, cy)).sort((a,b) => a.z - b.z);
+    const points = LAND_POINTS.map((p, i) => organicDot(p, i, state.rotation, radius, cx, cy)).filter(Boolean).sort((a,b) => a.z - b.z);
     const dot = Math.max(.65, radius / 190);
     for (const p of points) { if (p.z <= 0) continue; ctx.beginPath(); ctx.arc(p.x, p.y, dot, 0, Math.PI * 2); ctx.fillStyle = pointColor(p.z); ctx.fill(); }
     const dash = window.dash || {}, users = (dash.onlineUsers || []).slice(0, 20), sp = serverPoint(dash), server = sp ? project(sp.lon, sp.lat, state.rotation, radius, cx, cy) : null;
