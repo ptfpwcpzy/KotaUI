@@ -197,7 +197,7 @@ func dashboardHints(state config.State, certificate certificateInfo, services []
 	}
 	if !certificate.Valid {
 		hints = append(hints, healthHint{Level: "danger", Title: "证书不可用", Detail: certificate.Message, Target: "settings"})
-	} else if certificate.Days <= 7 {
+	} else if certificate.Days <= 3 {
 		hints = append(hints, healthHint{Level: "warning", Title: "证书即将到期", Detail: fmt.Sprintf("剩余 %d 天，自动续签会定期执行。", certificate.Days), Target: "settings"})
 	}
 	now := time.Now()
