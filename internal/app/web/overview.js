@@ -156,6 +156,8 @@
         const response = await fetch('/api/network-quality', { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
         if (!response.ok) throw new Error(`network-quality: ${response.status}`);
         pingData = await response.json();
+        if (!pingData.targets) pingData.targets = [];
+        if (!pingData.samples) pingData.samples = [];
         networkFailureCount = 0;
         networkRetryAt = 0;
         const host = ensureNetworkHost();
