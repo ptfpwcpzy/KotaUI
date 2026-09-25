@@ -146,6 +146,7 @@ func (a *App) startBackgroundTasks() {
 	a.backgroundOnce.Do(func() {
 		go a.syncTrafficLoop()
 		go a.networkQualityLoop()
+		go a.removeUnusedDistroSingBox()
 	})
 }
 
