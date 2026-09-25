@@ -66,6 +66,9 @@ type Settings struct {
 	BlockedDomains    []string           `json:"blockedDomains"`
 	BlockBitTorrent   bool               `json:"blockBitTorrent"`
 	PingTargets       []PingTarget       `json:"pingTargets,omitempty"`
+	MonthlyQuotaGB    int                `json:"monthlyQuotaGB,omitempty"`
+	BandwidthMbps     int                `json:"bandwidthMbps,omitempty"`
+	TrafficDirection  string             `json:"trafficDirection,omitempty"`
 }
 
 type RealityCandidate struct {
@@ -113,7 +116,8 @@ type Client struct {
 	UsedBytes          int64             `json:"usedBytes"`
 	UploadBytes        int64             `json:"uploadBytes"`
 	DownloadBytes      int64             `json:"downloadBytes"`
-	MonthlyUsedBytes   int64             `json:"monthlyUsedBytes"`
+	MonthlyUsedBytes     int64             `json:"monthlyUsedBytes"`
+	MonthlyDownloadBytes int64             `json:"monthlyDownloadBytes,omitempty"`
 	Month              string            `json:"month"`
 	ExpiresAt          string            `json:"expiresAt,omitempty"`
 	MaxOnlineIPs       int               `json:"maxOnlineIps"`
@@ -130,7 +134,7 @@ func DefaultState(domain string) State {
 		{Host: "www.adobe.com", Port: 443}, {Host: "www.ibm.com", Port: 443},
 		{Host: "www.oracle.com", Port: 443}, {Host: "www.mozilla.org", Port: 443},
 	}
-	return State{Settings: Settings{Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates, OutboundStrategy: "auto"}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
+	return State{Settings: Settings{Domain: domain, SubscriptionPath: "/kota-sub", RealityCandidates: candidates, OutboundStrategy: "auto", MonthlyQuotaGB: 1000, BandwidthMbps: 500, TrafficDirection: "both"}, Inbounds: []Inbound{}, Clients: []Client{}, TrafficCounters: map[string]TrafficCounters{}, Created: time.Now().UTC()}
 }
 
 func NewID() string            { return randomHex(16) }
