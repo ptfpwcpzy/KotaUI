@@ -2,6 +2,10 @@ package app
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 )
 
@@ -34,4 +38,24 @@ func (a *App) controlManagedSingBox(action string) error {
 
 func (a *App) restartManagedSingBox() error {
 	return a.controlManagedSingBox("restart")
+}
+
+func (a *App) removeUnusedDistroSingBox() {
+	bin := a.runtime.SingBoxBin
+	if filepath.Base(bin) != "sing-box-v2ray" || !filePresent(bin) {
+		return
+	}
+	if exec.Command("apk", "info", "-e", "sing-box").Run() == nil {
+		if err := exec.Command("apk", "del", "--no-cache", "sing-box").Run(); err != nil {
+			log.Printf("未能移除系统 sing-box 包：%v", err)
+		}
+		return
+	}
+	if exec.Command("dpkg", "-s", "sing-box").Run() == nil {
+		cmd := exec.Command("apt-get", "remove", "-y", "sing-box")
+		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+		if err := cmd.Run(); err != nil {
+			log.Printf("未能移除系统 sing-box 包：%v", err)
+		}
+	}
 }
