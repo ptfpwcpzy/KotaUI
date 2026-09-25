@@ -91,7 +91,9 @@ update(){
     case "$answer" in y|Y) ;; *) return 0;; esac
   fi
   update_status running '正在下载最新项目源码…'
-  source=$(mktemp -d)
+  install -d -m 700 /var/tmp/kotaui-build
+  export TMPDIR=/var/tmp/kotaui-build GOTMPDIR=/var/tmp/kotaui-build
+  source=$(mktemp -d /var/tmp/kotaui-build/src.XXXXXX)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; update_status failed '下载更新失败，请检查网络或更新日志。'; printf '下载更新失败。\n' >&2; return 1; fi
 	if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在构建兼容 sing-box 核心…'
