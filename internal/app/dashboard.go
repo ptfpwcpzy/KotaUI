@@ -5,8 +5,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -31,71 +29,6 @@ type healthHint struct {
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
 	Target string `json:"target"`
-}
-
-type publicNetworkAddresses struct {
-	IPv4 []string `json:"ipv4"`
-	IPv6 []string `json:"ipv6"`
-}
-
-func (a *App) publicNetworkLoop() {
-	a.refreshPublicNetwork()
-	ticker := time.NewTicker(30 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		a.refreshPublicNetwork()
-	}
-}
-
-func (a *App) refreshPublicNetwork() {
-	addresses := publicNetworkAddressesForHost()
-	if len(addresses.IPv4) == 0 {
-		if ip := fetchPublicIP("https://api.ipify.org"); ip != "" {
-			addresses.IPv4 = append(addresses.IPv4, ip)
-		}
-	}
-	if len(addresses.IPv6) == 0 {
-		if ip := fetchPublicIP("https://api6.ipify.org"); ip != "" {
-			addresses.IPv6 = append(addresses.IPv6, ip)
-		}
-	}
-	if len(addresses.IPv4) == 0 && len(addresses.IPv6) == 0 {
-		return
-	}
-	a.publicNetworkMu.Lock()
-	a.publicNetwork = addresses
-	a.publicNetworkMu.Unlock()
-}
-
-func (a *App) publicNetworkSnapshot() publicNetworkAddresses {
-	a.publicNetworkMu.RLock()
-	addresses := a.publicNetwork
-	a.publicNetworkMu.RUnlock()
-	if len(addresses.IPv4) == 0 && len(addresses.IPv6) == 0 {
-		return publicNetworkAddressesForHost()
-	}
-	return addresses
-}
-
-func fetchPublicIP(endpoint string) string {
-	client := &http.Client{Timeout: 3 * time.Second}
-	response, err := client.Get(endpoint)
-	if err != nil {
-		return ""
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return ""
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 128))
-	if err != nil {
-		return ""
-	}
-	ip := net.ParseIP(strings.TrimSpace(string(body)))
-	if !isPublicHostIP(ip) {
-		return ""
-	}
-	return ip.String()
 }
 
 const onlineActivityWindow = 20 * time.Second
@@ -236,69 +169,6 @@ func formatBytes(value int64) string {
 		return fmt.Sprintf("%.1f MB", float64(value)/(1024*1024))
 	}
 	return fmt.Sprintf("%.1f GB", float64(value)/(1024*1024*1024))
-}
-
-func publicNetworkAddressesForHost() publicNetworkAddresses {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return publicNetworkAddresses{}
-	}
-	addresses := make([]net.Addr, 0, len(interfaces)*2)
-	for _, iface := range interfaces {
-		values, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		addresses = append(addresses, values...)
-	}
-	return publicNetworkAddressesFrom(addresses)
-}
-
-func publicNetworkAddressesFrom(addresses []net.Addr) publicNetworkAddresses {
-	seen4, seen6 := make(map[string]bool), make(map[string]bool)
-	result := publicNetworkAddresses{IPv4: make([]string, 0, 1), IPv6: make([]string, 0, 1)}
-	for _, address := range addresses {
-		var ip net.IP
-		switch value := address.(type) {
-		case *net.IPNet:
-			ip = value.IP
-		case *net.IPAddr:
-			ip = value.IP
-		default:
-			continue
-		}
-		if v4 := ip.To4(); v4 != nil {
-			ip = v4
-		}
-		if !isPublicHostIP(ip) {
-			continue
-		}
-		text := ip.String()
-		if ip.To4() != nil {
-			if !seen4[text] {
-				seen4[text] = true
-				result.IPv4 = append(result.IPv4, text)
-			}
-			continue
-		}
-		if !seen6[text] {
-			seen6[text] = true
-			result.IPv6 = append(result.IPv6, text)
-		}
-	}
-	sort.Strings(result.IPv4)
-	sort.Strings(result.IPv6)
-	return result
-}
-
-func isPublicHostIP(ip net.IP) bool {
-	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
-		return false
-	}
-	if v4 := ip.To4(); v4 != nil {
-		return v4[0] != 0 && v4[0] < 224 && !(v4[0] == 100 && v4[1]&0xc0 == 0x40)
-	}
-	return true
 }
 
 var systemdAvailable = hasSystemd
