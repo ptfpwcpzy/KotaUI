@@ -1097,9 +1097,9 @@ func lastSevenDays(s config.State, now time.Time) []map[string]any {
 	for _, row := range s.DailyUsage {
 		byDate[row.Date] = row.Bytes
 	}
-	out := make([]map[string]any, 0, 7)
+	out := make([]map[string]any, 0, 15)
 	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
-	for i := 6; i >= 0; i-- {
+	for i := 14; i >= 0; i-- {
 		day := base.AddDate(0, 0, -i).Format("2006-01-02")
 		bytes := byDate[day]
 		if day == s.DailyDate {
