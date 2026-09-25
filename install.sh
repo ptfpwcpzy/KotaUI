@@ -158,13 +158,17 @@ prepare_ip_certbot(){
 
 acquire_certificate(){
   step '6 / 6' '申请证书并启用自动续签'
-  prepare_ip_certbot
-  if [ "$CERT_TYPE" = domain ]; then "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos -m "$CERT_EMAIL" -d "$CERT_SUBJECT"; else "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos --preferred-profile shortlived -m "$CERT_EMAIL" --ip-address "$CERT_SUBJECT"; fi
   cert_dir="/etc/letsencrypt/live/$CERT_SUBJECT"
+  if [ -r "$cert_dir/fullchain.pem" ] && [ -r "$cert_dir/privkey.pem" ] && openssl x509 -checkend 86400 -noout -in "$cert_dir/fullchain.pem" >/dev/null 2>&1; then
+    printf '已有有效证书，本次不再向证书机构申请。\n'
+  else
+    prepare_ip_certbot
+    if [ "$CERT_TYPE" = domain ]; then "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos --keep-until-expiring -m "$CERT_EMAIL" -d "$CERT_SUBJECT"; else "$CERTBOT_BIN" certonly --standalone --non-interactive --agree-tos --keep-until-expiring --preferred-profile shortlived -m "$CERT_EMAIL" --ip-address "$CERT_SUBJECT"; fi
+  fi
   [ -r "$cert_dir/fullchain.pem" ] && [ -r "$cert_dir/privkey.pem" ] || fail '证书文件未生成。'
   mkdir -p "$DATA_DIR/certs" "$DATA_DIR/sing-box" "$PREFIX/bin"
   ln -sfn "$cert_dir/fullchain.pem" "$DATA_DIR/certs/fullchain.pem"; ln -sfn "$cert_dir/privkey.pem" "$DATA_DIR/certs/privkey.pem"
-  ok '证书已签发并已链接到 KotaUI。'
+  ok '证书已就绪并已链接到 KotaUI。'
 }
 
 install_program(){
