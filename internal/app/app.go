@@ -111,7 +111,6 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/clients", a.auth(a.clients))
 	mux.HandleFunc("/api/clients/", a.auth(a.clientAction))
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
-	mux.HandleFunc("/api/settings/status", a.auth(a.settingsApplyStatus))
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
 	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
 	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
