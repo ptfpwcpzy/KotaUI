@@ -324,7 +324,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	a.resetMonth()
 	a.syncTraffic()
 	s := a.store.Snapshot()
-	active, totalUsed, monthlyUsed := 0, int64(0), int64(0)
+	active, totalUsed, monthlyUsed, monthlyDownload := 0, int64(0), int64(0), int64(0)
 	ports := make([]int, 0, len(s.Inbounds))
 	for _, inbound := range s.Inbounds {
 		if inbound.Enabled {
@@ -337,6 +337,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		}
 		totalUsed += client.UsedBytes
 		monthlyUsed += client.MonthlyUsedBytes
+		monthlyDownload += client.MonthlyDownloadBytes
 	}
 	certificate := certificateStatus(a.runtime.TLSCert)
 	services := []map[string]any{
@@ -353,6 +354,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,
 		"monthlyUsed":         monthlyUsed,
+		"monthlyDownload":     monthlyDownload,
 		"panelURL":            a.panelURL(),
 		"subscriptionBaseURL": a.subscriptionBaseURL(s.Settings.SubscriptionPath),
 		"version":             config.Version,
@@ -644,6 +646,7 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 				c.UploadBytes = 0
 				c.DownloadBytes = 0
 				c.MonthlyUsedBytes = 0
+				c.MonthlyDownloadBytes = 0
 			case "rotate":
 				types := make(map[string]string, len(s.Inbounds))
 				for _, inbound := range s.Inbounds {
@@ -832,23 +835,27 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		incoming.BlockedDomains = domains
 	}
 	current := a.store.Snapshot().Settings
+	dashboardChanged := dashboardSettingsChanged(current, incoming)
 	outboundChanged := incoming.OutboundStrategy != "" && incoming.OutboundStrategy != current.OutboundStrategy
 	candidatesChanged := incoming.RealityCandidates != nil && !reflect.DeepEqual(incoming.RealityCandidates, current.RealityCandidates)
 	blockedDomainsChanged := incoming.BlockedDomains != nil && !reflect.DeepEqual(incoming.BlockedDomains, current.BlockedDomains)
 	blockBitTorrentChanged := incoming.BlockBitTorrent != nil && *incoming.BlockBitTorrent != current.BlockBitTorrent
 	requiresCoreApply := outboundChanged || blockedDomainsChanged || blockBitTorrentChanged
 	if !requiresCoreApply {
-		if !candidatesChanged {
+		if !candidatesChanged && !dashboardChanged {
 			writeJSON(w, http.StatusOK, map[string]any{"settings": current, "applied": true, "message": "设置没有变化，当前配置已生效。"})
 			return
 		}
 		if a.updateIsRunning() || a.settingsApplyInProgress() {
-			serverError(w, errors.New("维护任务正在执行，暂不能保存候选伪装域名"))
+			serverError(w, errors.New("维护任务正在执行，暂不能保存设置"))
 			return
 		}
 		a.mu.Lock()
 		err := a.store.Update(func(s *config.State) error {
-			s.Settings.RealityCandidates = incoming.RealityCandidates
+			if incoming.RealityCandidates != nil {
+				s.Settings.RealityCandidates = incoming.RealityCandidates
+			}
+			applyDashboardSettings(&s.Settings, incoming)
 			return nil
 		})
 		a.mu.Unlock()
@@ -856,7 +863,11 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"settings": a.store.Snapshot().Settings, "applied": true, "message": "候选伪装域名已保存，不需要重启 sing-box 核心。"})
+		message := "仪表盘设置已保存。"
+		if candidatesChanged {
+			message = "设置已保存，不需要重启 sing-box 核心。"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"settings": a.store.Snapshot().Settings, "applied": true, "message": message})
 		return
 	}
 	err := a.startSettingsApply(func(s *config.State) error {
@@ -872,6 +883,7 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		if incoming.BlockBitTorrent != nil {
 			s.Settings.BlockBitTorrent = *incoming.BlockBitTorrent
 		}
+		applyDashboardSettings(&s.Settings, incoming)
 		return nil
 	})
 	if err != nil {
@@ -887,6 +899,61 @@ type settingsUpdateRequest struct {
 	OutboundStrategy  string                    `json:"outboundStrategy"`
 	BlockedDomains    []string                  `json:"blockedDomains"`
 	BlockBitTorrent   *bool                     `json:"blockBitTorrent"`
+	MonthlyQuotaGB   *int                      `json:"monthlyQuotaGB"`
+	BandwidthMbps    *int                      `json:"bandwidthMbps"`
+	TrafficDirection *string                   `json:"trafficDirection"`
+}
+
+func dashboardQuota(v int) int {
+	if v < 1 {
+		return 1000
+	}
+	if v > 1000000 {
+		return 1000000
+	}
+	return v
+}
+
+func dashboardBandwidth(v int) int {
+	if v < 1 {
+		return 500
+	}
+	if v > 100000 {
+		return 100000
+	}
+	return v
+}
+
+func dashboardDirection(v string) string {
+	if strings.TrimSpace(v) == "down" {
+		return "down"
+	}
+	return "both"
+}
+
+func applyDashboardSettings(s *config.Settings, incoming settingsUpdateRequest) {
+	if incoming.MonthlyQuotaGB != nil {
+		s.MonthlyQuotaGB = dashboardQuota(*incoming.MonthlyQuotaGB)
+	}
+	if incoming.BandwidthMbps != nil {
+		s.BandwidthMbps = dashboardBandwidth(*incoming.BandwidthMbps)
+	}
+	if incoming.TrafficDirection != nil {
+		s.TrafficDirection = dashboardDirection(*incoming.TrafficDirection)
+	}
+}
+
+func dashboardSettingsChanged(current config.Settings, incoming settingsUpdateRequest) bool {
+	if incoming.MonthlyQuotaGB != nil && dashboardQuota(*incoming.MonthlyQuotaGB) != dashboardQuota(current.MonthlyQuotaGB) {
+		return true
+	}
+	if incoming.BandwidthMbps != nil && dashboardBandwidth(*incoming.BandwidthMbps) != dashboardBandwidth(current.BandwidthMbps) {
+		return true
+	}
+	if incoming.TrafficDirection != nil && dashboardDirection(*incoming.TrafficDirection) != dashboardDirection(current.TrafficDirection) {
+		return true
+	}
+	return false
 }
 
 func normalizeBlockedDomains(values []string) ([]string, error) {
@@ -1051,6 +1118,7 @@ func (a *App) resetMonth() {
 			if s.Clients[i].Month != current {
 				s.Clients[i].Month = current
 				s.Clients[i].MonthlyUsedBytes = 0
+				s.Clients[i].MonthlyDownloadBytes = 0
 			}
 		}
 		return nil
