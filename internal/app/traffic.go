@@ -150,6 +150,7 @@ func (a *App) syncTraffic() {
 			if client.Month != month {
 				client.Month = month
 				client.MonthlyUsedBytes = 0
+				client.MonthlyDownloadBytes = 0
 			}
 			now := current[client.Username]
 			before := next.TrafficCounters[client.Username]
@@ -160,6 +161,7 @@ func (a *App) syncTraffic() {
 				client.DownloadBytes += download
 				client.UsedBytes += delta
 				client.MonthlyUsedBytes += delta
+				client.MonthlyDownloadBytes += download
 				client.LastActiveAt = nowTime.UTC()
 			}
 			next.TrafficCounters[client.Username] = now
