@@ -166,8 +166,6 @@ func Subscription(state config.State, runtime config.Runtime, username string) (
 				if inbound.ObfsPassword != "" {
 					query.Set("obfs", "salamander")
 					query.Set("obfs-password", inbound.ObfsPassword)
-				} else {
-					query.Set("obfs", "none")
 				}
 				// NekoBox recognizes the official short Hysteria2 scheme, hy2://.
 				links = append(links, fmt.Sprintf("hy2://%s@%s:%d/?%s#%s", url.PathEscape(secret), shareHost(inbound, runtime), inbound.Port, query.Encode(), url.QueryEscape(label)))
