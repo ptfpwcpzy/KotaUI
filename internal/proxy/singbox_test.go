@@ -52,6 +52,16 @@ func TestHysteriaSubscriptionCarriesObfsParameters(t *testing.T) {
 	}
 }
 
+func TestHysteriaSubscriptionOmitsDisabledObfs(t *testing.T) {
+	state := config.DefaultState("example.test")
+	state.Inbounds = []config.Inbound{{ID: "hy2", Name: "hy2", Type: "hysteria2", Enabled: true, Port: 24443}}
+	state.Clients = []config.Client{{Username: "alice", InboundIDs: []string{"hy2"}, Credentials: map[string]string{"hy2": "client-secret"}}}
+	link, ok := Subscription(state, config.Runtime{Domain: "example.test"}, "alice")
+	if !ok || strings.Contains(link, "obfs=") || strings.Contains(link, "obfs-password=") {
+		t.Fatalf("disabled obfuscation must be omitted: %q", link)
+	}
+}
+
 func TestSS2022SubscriptionUsesLiteralSIP022Userinfo(t *testing.T) {
 	state := config.DefaultState("example.test")
 	state.Inbounds = []config.Inbound{{ID: "ss", Name: "ss", Type: "shadowsocks2022", Enabled: true, Port: 24443, ServerPassword: "server/key+"}}
