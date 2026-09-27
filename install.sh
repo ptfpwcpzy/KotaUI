@@ -1,6 +1,17 @@
 #!/bin/sh
 set -eu
 
+prepare_go_cache() {
+  install -d -m 700 /var/tmp/kotaui-build
+  export TMPDIR=/var/tmp/kotaui-build
+  export GOTMPDIR=/var/tmp/kotaui-build
+  if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then export HOME=/root; fi
+  export GOPATH="${GOPATH:-/var/tmp/kotaui-build/gopath}"
+  export GOMODCACHE="${GOMODCACHE:-/var/tmp/kotaui-build/gomodcache}"
+  export GOCACHE="${GOCACHE:-/var/tmp/kotaui-build/gocache}"
+  install -d -m 700 "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+}
+
 PREFIX=${KOTAUI_PREFIX:-/opt/kotaui}
 DATA_DIR=${KOTAUI_DATA_DIR:-/var/lib/kotaui}
 BIN_DIR=${KOTAUI_BIN_DIR:-/usr/local/bin}
@@ -171,8 +182,7 @@ acquire_certificate(){
 }
 
 install_program(){
-  install -d -m 700 /var/tmp/kotaui-build
-  export TMPDIR=/var/tmp/kotaui-build GOTMPDIR=/var/tmp/kotaui-build
+  prepare_go_cache
   if [ -z "$SOURCE_DIR" ]; then SOURCE_DIR=$(mktemp -d); trap 'rm -rf "$SOURCE_DIR"' EXIT; git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$SOURCE_DIR"; fi
   [ -f "$SOURCE_DIR/go.mod" ] || fail '未找到 KotaUI Go 源码。'
   step '5 / 6' '构建 KotaUI 与用户流量统计核心'
