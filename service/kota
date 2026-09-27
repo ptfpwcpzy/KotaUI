@@ -1,6 +1,17 @@
 #!/bin/sh
 set -eu
 
+prepare_go_cache() {
+  install -d -m 700 /var/tmp/kotaui-build
+  export TMPDIR=/var/tmp/kotaui-build
+  export GOTMPDIR=/var/tmp/kotaui-build
+  if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then export HOME=/root; fi
+  export GOPATH="${GOPATH:-/var/tmp/kotaui-build/gopath}"
+  export GOMODCACHE="${GOMODCACHE:-/var/tmp/kotaui-build/gomodcache}"
+  export GOCACHE="${GOCACHE:-/var/tmp/kotaui-build/gocache}"
+  install -d -m 700 "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+}
+
 DATA_DIR=${KOTAUI_DATA_DIR:-/var/lib/kotaui}
 PREFIX=${KOTAUI_PREFIX:-/opt/kotaui}
 BIN_DIR=${KOTAUI_BIN_DIR:-/usr/local/bin}
@@ -91,8 +102,7 @@ update(){
     case "$answer" in y|Y) ;; *) return 0;; esac
   fi
   update_status running '正在下载最新项目源码…'
-  install -d -m 700 /var/tmp/kotaui-build
-  export TMPDIR=/var/tmp/kotaui-build GOTMPDIR=/var/tmp/kotaui-build
+  prepare_go_cache
   source=$(mktemp -d /var/tmp/kotaui-build/src.XXXXXX)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; update_status failed '下载更新失败，请检查网络或更新日志。'; printf '下载更新失败。\n' >&2; return 1; fi
 	if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
