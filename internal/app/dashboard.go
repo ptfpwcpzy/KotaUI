@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -50,6 +51,9 @@ func recordedUptime(path string, now time.Time) int64 {
 }
 
 func coreUptimeSeconds(now time.Time) int64 {
+	if u := singBoxProcessUptime(); u > 0 {
+		return u
+	}
 	if u := recordedUptime("/run/kotaui-singbox.started", now); u > 0 {
 		return u
 	}
@@ -59,10 +63,88 @@ func coreUptimeSeconds(now time.Time) int64 {
 			return elapsed
 		}
 	}
-	if serviceRunning("kotaui-singbox") {
+	return 0
+}
+
+func singBoxProcessUptime() int64 {
+	boot := procBootSeconds()
+	if boot <= 0 {
+		return 0
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	var best int64
+	for _, entry := range entries {
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+		cmd, err := os.ReadFile("/proc/" + entry.Name() + "/cmdline")
+		if err != nil || !isManagedSingBox(cmd) {
+			continue
+		}
+		ticks := procStartTicks("/proc/" + entry.Name() + "/stat")
+		elapsed := uptimeFromStartTicks(ticks, 100, boot)
+		if elapsed > best {
+			best = elapsed
+		}
+	}
+	return best
+}
+
+func isManagedSingBox(raw []byte) bool {
+	text := strings.ToLower(string(bytes.ReplaceAll(raw, []byte{0}, []byte{' '})))
+	return strings.Contains(text, "sing-box") && strings.Contains(text, " run")
+}
+
+func procBootSeconds() float64 {
+	body, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(body))
+	if len(fields) == 0 {
+		return 0
+	}
+	boot, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil || boot <= 0 {
+		return 0
+	}
+	return boot
+}
+
+func procStartTicks(path string) int64 {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	text := string(body)
+	end := strings.LastIndex(text, ")")
+	if end < 0 || end+1 >= len(text) {
+		return 0
+	}
+	fields := strings.Fields(text[end+1:])
+	// starttime is field 22 of /proc/pid/stat. Fields 1-2 are before ")".
+	if len(fields) < 20 {
+		return 0
+	}
+	ticks, err := strconv.ParseInt(fields[19], 10, 64)
+	if err != nil || ticks <= 0 {
+		return 0
+	}
+	return ticks
+}
+
+func uptimeFromStartTicks(startTicks int64, clk int64, bootSeconds float64) int64 {
+	if startTicks <= 0 || clk <= 0 || bootSeconds <= 0 {
+		return 0
+	}
+	elapsed := int64(bootSeconds - float64(startTicks)/float64(clk))
+	if elapsed < 1 {
 		return 1
 	}
-	return 0
+	return elapsed
 }
 
 func serviceActiveUnix(unit string) int64 {
