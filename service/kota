@@ -6,10 +6,11 @@ prepare_go_cache() {
   export TMPDIR=/var/tmp/kotaui-build
   export GOTMPDIR=/var/tmp/kotaui-build
   if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then export HOME=/root; fi
-  export GOPATH="${GOPATH:-/var/tmp/kotaui-build/gopath}"
-  export GOMODCACHE="${GOMODCACHE:-/var/tmp/kotaui-build/gomodcache}"
-  export GOCACHE="${GOCACHE:-/var/tmp/kotaui-build/gocache}"
-  install -d -m 700 "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+  # Alpine often mounts /var/tmp on tmpfs. A module cache there is discarded,
+  # so every update downloads modules and recompiles. Reuse the persistent
+  # cache under $HOME instead.
+  unset GOPATH GOMODCACHE GOCACHE
+  install -d -m 700 "$HOME/go/pkg/mod" "$HOME/.cache/go-build"
 }
 
 DATA_DIR=${KOTAUI_DATA_DIR:-/var/lib/kotaui}
