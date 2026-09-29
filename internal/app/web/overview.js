@@ -4,21 +4,20 @@
   const originalDashboard = window.viewDashboard;
   const originalSettings = window.viewSettings;
   const colors = ['#3671ef', '#12af7f', '#7a61e8', '#d19524', '#de5b65', '#4aa8c4'];
+  const networkRefreshInterval = 2 * 60 * 1000;
   const hiddenTargets = new Set();
   let pingData = { targets: [], samples: [] };
   let networkLoadPromise = null;
   let networkRetryAt = 0;
+  let networkNextRefreshAt = 0;
   let networkFailureCount = 0;
 
   const style = document.createElement('style');
   style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}`;
   document.head.append(style);
-
-  function latestFor(id) {
-    return pingData.samples
-      .filter(sample => sample.targetId === id)
-      .sort((a, b) => new Date(b.checkedAt) - new Date(a.checkedAt))[0];
-  }
+  const summaryStyle = document.createElement('style');
+  summaryStyle.textContent = '.network-quality-target .nq-count{color:var(--muted);font-size:8px;font-variant-numeric:tabular-nums;white-space:nowrap}';
+  document.head.append(summaryStyle);
 
   function displaySeries(targetID, start, end) {
     return pingData.samples
@@ -115,13 +114,17 @@
     let card = dashboard.querySelector('.network-quality-card');
     if (!card) { card = document.createElement('section'); card.className = 'card section network-quality-card'; dashboard.append(card); }
     const targets = pingData.targets.map((target, index) => {
-      const latest = latestFor(target.id);
-      const latency = latest ? `${latest.avgMs.toFixed(1)}ms` : '--';
-      const loss = latest ? `${latest.loss.toFixed(2)}%` : '--';
+      const summary = pingData.summary24h?.[target.id];
+      const hasSummary = summary && summary.checks > 0;
+      const latency = hasSummary ? `${summary.averageMs.toFixed(1)}ms` : '--';
+      const loss = hasSummary ? `${summary.lossPercent.toFixed(2)}%` : '--';
+      const detail = hasSummary
+        ? `24小时 ${summary.checks} 轮，收到 ${summary.received}/${summary.sent} 个探测包，最大观测延迟 ${summary.maxMs.toFixed(1)}ms`
+        : '过去24小时暂无有效探测数据';
       const hidden = hiddenTargets.has(target.id);
-      return `<button type="button" class="network-quality-target ${hidden ? 'is-hidden' : 'active'}" data-nq-target="${window.esc(target.id)}" title="${window.esc(target.name)}"><i class="nq-dot" style="background:${colors[index % colors.length]}"></i><b class="nq-name">${window.esc(target.name)}</b><strong class="nq-value">${latency}</strong><span class="nq-value nq-loss">${loss}</span></button>`;
+      return `<button type="button" class="network-quality-target ${hidden ? 'is-hidden' : 'active'}" data-nq-target="${window.esc(target.id)}" title="${window.esc(`${target.name} · ${detail} · 平均延迟 ${latency} · 丢包率 ${loss}`)}"><i class="nq-dot" style="background:${colors[index % colors.length]}"></i><b class="nq-name">${window.esc(target.name)}</b><strong class="nq-value">${latency}</strong><span class="nq-value nq-loss">${loss}</span><small class="nq-count">${hasSummary ? `${summary.received}/${summary.sent}包` : '--'}</small></button>`;
     }).join('');
-    card.innerHTML = `<div class="network-quality-head"><h2>网络质量</h2></div>${pingData.targets.length ? chart() : '<div class="nq-empty">请在设置中添加 IP 或域名监测目标</div>'}<div class="network-quality-targets">${targets}</div>`;
+    card.innerHTML = `<div class="network-quality-head"><h2>网络质量</h2><p class="sub">服务端 ICMP 探测（每2分钟2包）· 过去24小时加权平均 RTT / 累计丢包率</p></div>${pingData.targets.length ? chart() : '<div class="nq-empty">请在设置中添加 IP 或域名监测目标</div>'}<div class="network-quality-targets">${targets}</div>`;
     card.querySelectorAll('[data-nq-target]').forEach(button => button.onclick = () => {
       const id = button.dataset.nqTarget;
       if (hiddenTargets.has(id)) hiddenTargets.delete(id); else hiddenTargets.add(id);
@@ -148,7 +151,7 @@
 
   async function loadNetwork() {
     if (networkLoadPromise) return networkLoadPromise;
-    if (Date.now() < networkRetryAt) return;
+    if (Date.now() < networkRetryAt || Date.now() < networkNextRefreshAt) return;
     networkLoadPromise = (async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
@@ -158,10 +161,14 @@
         pingData = await response.json();
         if (!pingData.targets) pingData.targets = [];
         if (!pingData.samples) pingData.samples = [];
+        if (!pingData.summary24h) pingData.summary24h = {};
         networkFailureCount = 0;
         networkRetryAt = 0;
-        const host = ensureNetworkHost();
-        if (host) renderNetwork(host);
+        networkNextRefreshAt = Date.now() + networkRefreshInterval;
+        if (document.querySelector('#view .dashboard-grid')) {
+          const host = ensureNetworkHost();
+          if (host) renderNetwork(host);
+        }
       } catch {
         // A direct route can temporarily stall while a proxy route works.
         // Do not start another request every 2 seconds; retry with backoff.
@@ -185,8 +192,8 @@
     document.querySelector('.dashboard-grid')?.querySelector('.address-strip')?.remove();
     const host = ensureNetworkHost();
     if (!host) return;
-    if (!host.querySelector('.network-quality-card')) renderNetwork(host);
-    if (!pingData.targets.length && !networkLoadPromise) loadNetwork();
+    renderNetwork(host);
+    loadNetwork();
   };
 
   function renderSettingsTargets() {
@@ -232,4 +239,7 @@
   // Start the data request early; viewDashboard will mount the result when the
   // initial dashboard render completes.
   loadNetwork();
+  setInterval(() => {
+    if (document.querySelector('#view .dashboard-grid')) loadNetwork();
+  }, networkRefreshInterval);
 })();
