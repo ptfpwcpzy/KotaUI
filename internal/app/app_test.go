@@ -307,6 +307,67 @@ func TestRecentOnlineUsers(t *testing.T) {
 	}
 }
 
+func TestProcessUptimeUsesOnlyManagedPID(t *testing.T) {
+	procRoot := t.TempDir()
+	writeProcess := func(pid int, command string, startTicks int64) {
+		t.Helper()
+		processDir := filepath.Join(procRoot, strconv.Itoa(pid))
+		if err := os.MkdirAll(processDir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(processDir, "cmdline"), []byte(command), 0600); err != nil {
+			t.Fatal(err)
+		}
+		fields := make([]string, 20)
+		for index := range fields {
+			fields[index] = "0"
+		}
+		fields[0] = "S"
+		fields[19] = strconv.FormatInt(startTicks, 10)
+		stat := strconv.Itoa(pid) + " (sing-box (managed)) " + strings.Join(fields, " ")
+		if err := os.WriteFile(filepath.Join(processDir, "stat"), []byte(stat), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeProcess(101, "/opt/kotaui/sing-box-v2ray\x00run\x00-c\x00/config.json", 259000)
+	writeProcess(202, "/usr/local/bin/sing-box\x00run\x00-c\x00/other/config.json", 10000)
+	writeProcess(303, "/usr/bin/other-service\x00run\x00/config.json", 1000)
+
+	if got := processUptimeFromProc(procRoot, 101, 3600); got != 1010 {
+		t.Fatalf("managed process uptime = %d, want 1010", got)
+	}
+	if got := processUptimeFromProc(procRoot, 303, 3600); got != 0 {
+		t.Fatalf("unrelated process uptime = %d, want 0", got)
+	}
+}
+
+func TestParseProcessID(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  int
+	}{{"1234\n", 1234}, {"0", 0}, {"not-a-pid", 0}} {
+		if got := parseProcessID([]byte(test.input)); got != test.want {
+			t.Fatalf("parseProcessID(%q) = %d, want %d", test.input, got, test.want)
+		}
+	}
+}
+
+func TestSingBoxServicePIDUsesSystemdMainPID(t *testing.T) {
+	binDir := t.TempDir()
+	systemctl := filepath.Join(binDir, "systemctl")
+	if err := os.WriteFile(systemctl, []byte("#!/bin/sh\nprintf '4321\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	previous := systemdAvailable
+	systemdAvailable = func() bool { return true }
+	t.Cleanup(func() { systemdAvailable = previous })
+	t.Setenv("PATH", binDir)
+
+	if got := singBoxServicePID(); got != 4321 {
+		t.Fatalf("sing-box service PID = %d, want 4321", got)
+	}
+}
+
 func TestDashboardAndSNITest(t *testing.T) {
 	a := testApp(t)
 	h := a.Handler()

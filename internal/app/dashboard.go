@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,7 +52,7 @@ func recordedUptime(path string, now time.Time) int64 {
 }
 
 func coreUptimeSeconds(now time.Time) int64 {
-	if u := singBoxProcessUptime(); u > 0 {
+	if u := managedSingBoxProcessUptime(); u > 0 {
 		return u
 	}
 	if u := recordedUptime("/run/kotaui-singbox.started", now); u > 0 {
@@ -66,31 +67,52 @@ func coreUptimeSeconds(now time.Time) int64 {
 	return 0
 }
 
-func singBoxProcessUptime() int64 {
-	boot := procBootSeconds()
-	if boot <= 0 {
+func managedSingBoxProcessUptime() int64 {
+	pid := singBoxServicePID()
+	if pid <= 0 {
 		return 0
 	}
-	entries, err := os.ReadDir("/proc")
+	return processUptimeFromProc("/proc", pid, procBootSeconds())
+}
+
+func singBoxServicePID() int {
+	if systemdAvailable() {
+		out, err := exec.Command("systemctl", "show", "kotaui-singbox", "--property=MainPID", "--value").Output()
+		if err != nil {
+			return 0
+		}
+		return parseProcessID(out)
+	}
+	return processIDFromFile("/run/kotaui-singbox.pid")
+}
+
+func parseProcessID(raw []byte) int {
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
+func processIDFromFile(path string) int {
+	body, err := os.ReadFile(path)
 	if err != nil {
 		return 0
 	}
-	var best int64
-	for _, entry := range entries {
-		if _, err := strconv.Atoi(entry.Name()); err != nil {
-			continue
-		}
-		cmd, err := os.ReadFile("/proc/" + entry.Name() + "/cmdline")
-		if err != nil || !isManagedSingBox(cmd) {
-			continue
-		}
-		ticks := procStartTicks("/proc/" + entry.Name() + "/stat")
-		elapsed := uptimeFromStartTicks(ticks, 100, boot)
-		if elapsed > best {
-			best = elapsed
-		}
+	return parseProcessID(body)
+}
+
+func processUptimeFromProc(procRoot string, pid int, bootSeconds float64) int64 {
+	if pid <= 0 || bootSeconds <= 0 {
+		return 0
 	}
-	return best
+	processDir := filepath.Join(procRoot, strconv.Itoa(pid))
+	cmd, err := os.ReadFile(filepath.Join(processDir, "cmdline"))
+	if err != nil || !isManagedSingBox(cmd) {
+		return 0
+	}
+	ticks := procStartTicks(filepath.Join(processDir, "stat"))
+	return uptimeFromStartTicks(ticks, 100, bootSeconds)
 }
 
 func isManagedSingBox(raw []byte) bool {
