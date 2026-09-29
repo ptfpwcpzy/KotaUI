@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -42,6 +43,60 @@ type pingSample struct {
 	Received      int       `json:"received"`
 	Loss          float64   `json:"loss"`
 	Error         string    `json:"error,omitempty"`
+}
+
+type pingSummary struct {
+	Checks      int     `json:"checks"`
+	Sent        int     `json:"sent"`
+	Received    int     `json:"received"`
+	LossPercent float64 `json:"lossPercent"`
+	AverageMs   float64 `json:"averageMs"`
+	MaxMs       float64 `json:"maxMs"`
+}
+
+func summarizePingSamples(samples []pingSample) map[string]pingSummary {
+	type accumulator struct {
+		summary         pingSummary
+		weightedLatency float64
+	}
+	accumulators := make(map[string]*accumulator)
+	for _, sample := range samples {
+		if sample.TargetID == "" || sample.Sent <= 0 {
+			continue
+		}
+		current := accumulators[sample.TargetID]
+		if current == nil {
+			current = &accumulator{}
+			accumulators[sample.TargetID] = current
+		}
+		received := sample.Received
+		if received < 0 {
+			received = 0
+		}
+		if received > sample.Sent {
+			received = sample.Sent
+		}
+		current.summary.Checks++
+		current.summary.Sent += sample.Sent
+		current.summary.Received += received
+		if received > 0 && sample.AvgMs >= 0 && !math.IsNaN(sample.AvgMs) && !math.IsInf(sample.AvgMs, 0) {
+			current.weightedLatency += sample.AvgMs * float64(received)
+			if sample.MaxMs > current.summary.MaxMs && !math.IsNaN(sample.MaxMs) && !math.IsInf(sample.MaxMs, 0) {
+				current.summary.MaxMs = sample.MaxMs
+			}
+		}
+	}
+	result := make(map[string]pingSummary, len(accumulators))
+	for targetID, current := range accumulators {
+		if current.summary.Sent > 0 {
+			current.summary.LossPercent = float64(current.summary.Sent-current.summary.Received) * 100 / float64(current.summary.Sent)
+		}
+		if current.summary.Received > 0 {
+			current.summary.AverageMs = current.weightedLatency / float64(current.summary.Received)
+		}
+		result[targetID] = current.summary
+	}
+	return result
 }
 
 type pingHistoryFile struct {
@@ -263,7 +318,7 @@ func (a *App) networkQuality(w http.ResponseWriter, r *http.Request) {
 	if samples == nil {
 		samples = []pingSample{}
 	}
-	value := map[string]any{"targets": targets, "samples": samples}
+	value := map[string]any{"targets": targets, "samples": samples, "summary24h": summarizePingSamples(samples)}
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept-Encoding")), "gzip") {
 		body, err := json.Marshal(value)
 		if err == nil {
