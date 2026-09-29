@@ -40,6 +40,14 @@ func testApp(t *testing.T) *App {
 	application.trafficSyncInterval = 0
 	return application
 }
+
+func TestPanelUptimeStartRetainsMonotonicClock(t *testing.T) {
+	a := testApp(t)
+	if a.startedAt == a.startedAt.Round(0) {
+		t.Fatal("panel start time has no monotonic clock reading")
+	}
+}
+
 func fakeRealityKeypairBinary(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sing-box")

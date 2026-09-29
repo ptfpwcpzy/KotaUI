@@ -92,7 +92,9 @@ func New(runtime config.Runtime) (*App, error) {
 		return nil, err
 	}
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 15 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now().UTC(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}}, nil
+	// Keep the monotonic clock reading from time.Now(); converting to UTC strips
+	// it, which would make panel uptime jump when the system wall clock changes.
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 15 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}}, nil
 }
 
 func (a *App) Handler() http.Handler {
