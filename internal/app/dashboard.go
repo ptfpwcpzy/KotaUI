@@ -51,8 +51,8 @@ func recordedUptime(path string, now time.Time) int64 {
 	return int64(elapsed.Seconds())
 }
 
-func coreUptimeSeconds(now time.Time) int64 {
-	if u := managedSingBoxProcessUptime(); u > 0 {
+func coreUptimeSeconds(now time.Time, bootSeconds float64) int64 {
+	if u := managedSingBoxProcessUptime(bootSeconds); u > 0 {
 		return u
 	}
 	if u := recordedUptime("/run/kotaui-singbox.started", now); u > 0 {
@@ -67,12 +67,12 @@ func coreUptimeSeconds(now time.Time) int64 {
 	return 0
 }
 
-func managedSingBoxProcessUptime() int64 {
+func managedSingBoxProcessUptime(bootSeconds float64) int64 {
 	pid := singBoxServicePID()
 	if pid <= 0 {
 		return 0
 	}
-	return processUptimeFromProc("/proc", pid, procBootSeconds())
+	return singBoxProcessUptimeFromProc("/proc", pid, bootSeconds)
 }
 
 func singBoxServicePID() int {
@@ -107,12 +107,31 @@ func processUptimeFromProc(procRoot string, pid int, bootSeconds float64) int64 
 		return 0
 	}
 	processDir := filepath.Join(procRoot, strconv.Itoa(pid))
-	cmd, err := os.ReadFile(filepath.Join(processDir, "cmdline"))
+	ticks := procStartTicks(filepath.Join(processDir, "stat"))
+	return uptimeFromStartTicks(ticks, 100, bootSeconds)
+}
+
+func singBoxProcessUptimeFromProc(procRoot string, pid int, bootSeconds float64) int64 {
+	if pid <= 0 {
+		return 0
+	}
+	cmd, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
 	if err != nil || !isManagedSingBox(cmd) {
 		return 0
 	}
-	ticks := procStartTicks(filepath.Join(processDir, "stat"))
-	return uptimeFromStartTicks(ticks, 100, bootSeconds)
+	return processUptimeFromProc(procRoot, pid, bootSeconds)
+}
+
+func panelUptimeSeconds(startedAt time.Time, bootSeconds float64) int64 {
+	// Use the same kernel process-start clock as the core, so simultaneous
+	// starts are compared on the same time base rather than mixing clocks.
+	if elapsed := processUptimeFromProc("/proc", os.Getpid(), bootSeconds); elapsed > 0 {
+		return elapsed
+	}
+	if elapsed := time.Since(startedAt); elapsed > 0 {
+		return int64(elapsed.Seconds())
+	}
+	return 0
 }
 
 func isManagedSingBox(raw []byte) bool {

@@ -346,12 +346,14 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		{"id": "panel", "name": "KotaUI 面板", "running": serviceRunning("kotaui")},
 		{"id": "singbox", "name": "sing-box 核心", "running": serviceRunning("kotaui-singbox")},
 	}
+	uptimeNow := time.Now()
+	bootSeconds := procBootSeconds()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metrics":       system.Collect(a.runtime.DataDir, ports),
 		"activeClients": active,
 		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
-		"panelUptime":   int64(time.Since(a.startedAt).Seconds()),
-		"coreUptime":         coreUptimeSeconds(time.Now()),
+		"panelUptime":   panelUptimeSeconds(a.startedAt, bootSeconds),
+		"coreUptime":         coreUptimeSeconds(uptimeNow, bootSeconds),
 		"inboundCount":        len(s.Inbounds),
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,

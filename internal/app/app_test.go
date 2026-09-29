@@ -332,11 +332,14 @@ func TestProcessUptimeUsesOnlyManagedPID(t *testing.T) {
 	writeProcess(101, "/opt/kotaui/sing-box-v2ray\x00run\x00-c\x00/config.json", 259000)
 	writeProcess(202, "/usr/local/bin/sing-box\x00run\x00-c\x00/other/config.json", 10000)
 	writeProcess(303, "/usr/bin/other-service\x00run\x00/config.json", 1000)
+	writeProcess(404, "/opt/kotaui/kotaui\x00", 259000)
 
-	if got := processUptimeFromProc(procRoot, 101, 3600); got != 1010 {
-		t.Fatalf("managed process uptime = %d, want 1010", got)
+	coreUptime := singBoxProcessUptimeFromProc(procRoot, 101, 3600)
+	panelUptime := processUptimeFromProc(procRoot, 404, 3600)
+	if coreUptime != 1010 || panelUptime != coreUptime {
+		t.Fatalf("same-start uptimes differ: core=%d panel=%d, want both 1010", coreUptime, panelUptime)
 	}
-	if got := processUptimeFromProc(procRoot, 303, 3600); got != 0 {
+	if got := singBoxProcessUptimeFromProc(procRoot, 303, 3600); got != 0 {
 		t.Fatalf("unrelated process uptime = %d, want 0", got)
 	}
 }
