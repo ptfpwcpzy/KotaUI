@@ -130,15 +130,28 @@ choose_panel(){
   done
 }
 
+# 账号/密码规则：3-20 个常规字符（字母、数字及 _ . - @）。
+valid_credential(){
+  case "$1" in
+    ''|*[!A-Za-z0-9_.@-]*) return 1;;
+  esac
+  [ "${#1}" -ge 3 ] && [ "${#1}" -le 20 ]
+}
+
 choose_admin(){
   step '3 / 6' '设置管理员账号和密码'
-  while [ -z "$ADMIN_USER" ]; do ADMIN_USER=$(ask '管理员账号： '); done
-	while :; do
-		[ -n "$ADMIN_PASSWORD" ] || ADMIN_PASSWORD=$(ask '管理员密码（输入内容会显示，仅输入一次）： ')
-		[ "${#ADMIN_PASSWORD}" -ge 8 ] && break
-		printf '密码至少需要 8 个字符。\n'
-		ADMIN_PASSWORD=
-	done
+  while :; do
+    [ -n "$ADMIN_USER" ] || ADMIN_USER=$(ask '管理员账号： ')
+    if valid_credential "$ADMIN_USER"; then break; fi
+    printf '账号需为 3-20 个字符，仅支持字母、数字及 _ . - @。\n'
+    ADMIN_USER=
+  done
+  while :; do
+    [ -n "$ADMIN_PASSWORD" ] || ADMIN_PASSWORD=$(ask '管理员密码（输入内容会显示，仅输入一次）： ')
+    if valid_credential "$ADMIN_PASSWORD"; then break; fi
+    printf '密码需为 3-20 个字符，仅支持字母、数字及 _ . - @。\n'
+    ADMIN_PASSWORD=
+  done
 }
 
 install_packages(){
