@@ -956,3 +956,134 @@ func TestDeleteInboundDetachesClients(t *testing.T) {
 		t.Fatal("client still bound to deleted inbound")
 	}
 }
+
+func loginTestRequest(ip string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+	req.RemoteAddr = ip + ":43120"
+	return req
+}
+
+func TestLoginBanEscalates(t *testing.T) {
+	a := testApp(t)
+	req := loginTestRequest("198.51.100.7")
+	for i := 0; i < loginMaxAttempts; i++ {
+		if a.loginBlocked(req) {
+			t.Fatalf("blocked before reaching %d failures (i=%d)", loginMaxAttempts, i)
+		}
+		a.noteLoginFailure(req)
+	}
+	if !a.loginBlocked(req) {
+		t.Fatalf("expected ban after %d failures", loginMaxAttempts)
+	}
+	a.loginMu.Lock()
+	first := a.loginFails["198.51.100.7"]
+	a.loginMu.Unlock()
+	if first.bans != 1 {
+		t.Fatalf("expected 1 ban, got %d", first.bans)
+	}
+	if d := time.Until(first.blockedUntil); d <= 0 || d > 2*time.Minute {
+		t.Fatalf("expected ~1m first ban, got %v", d)
+	}
+	// Expire the ban and fail again: the second ban must be longer.
+	a.loginMu.Lock()
+	first.blockedUntil = time.Now().Add(-time.Second)
+	a.loginFails["198.51.100.7"] = first
+	a.loginMu.Unlock()
+	if a.loginBlocked(req) {
+		t.Fatal("ban should have expired")
+	}
+	for i := 0; i < loginMaxAttempts; i++ {
+		a.noteLoginFailure(req)
+	}
+	a.loginMu.Lock()
+	second := a.loginFails["198.51.100.7"]
+	a.loginMu.Unlock()
+	if second.bans != 2 {
+		t.Fatalf("expected 2 bans, got %d", second.bans)
+	}
+	if d := time.Until(second.blockedUntil); d <= time.Minute || d > 3*time.Minute {
+		t.Fatalf("expected escalated ~2m ban, got %v", d)
+	}
+	if !a.loginBlocked(req) {
+		t.Fatal("expected ban after second round of failures")
+	}
+}
+
+func TestLoginFailureWindowResets(t *testing.T) {
+	a := testApp(t)
+	req := loginTestRequest("198.51.100.8")
+	for i := 0; i < loginMaxAttempts-1; i++ {
+		a.noteLoginFailure(req)
+	}
+	if a.loginBlocked(req) {
+		t.Fatal("should not be blocked below the threshold")
+	}
+	// Age the window out: the next failure starts a fresh count.
+	a.loginMu.Lock()
+	attempt := a.loginFails["198.51.100.8"]
+	attempt.windowStart = time.Now().Add(-loginAttemptWindow - time.Minute)
+	a.loginFails["198.51.100.8"] = attempt
+	a.loginMu.Unlock()
+	a.noteLoginFailure(req)
+	if a.loginBlocked(req) {
+		t.Fatal("stale failures must not accumulate into a ban")
+	}
+}
+
+func TestLoginFailMapStaysBounded(t *testing.T) {
+	a := testApp(t)
+	for i := 0; i < loginFailMapCap+500; i++ {
+		ip := "10." + strconv.Itoa(i/65536) + "." + strconv.Itoa((i/256)%256) + "." + strconv.Itoa(i%256)
+		a.noteLoginFailure(loginTestRequest(ip))
+	}
+	a.loginMu.Lock()
+	n := len(a.loginFails)
+	a.loginMu.Unlock()
+	if n > loginFailMapCap {
+		t.Fatalf("login fail map grew to %d, want <= %d", n, loginFailMapCap)
+	}
+}
+
+func TestLoginBanDurationCaps(t *testing.T) {
+	if got := loginBanDuration(1); got != time.Minute {
+		t.Fatalf("first ban = %v, want 1m", got)
+	}
+	if got := loginBanDuration(100); got != loginMaxBan {
+		t.Fatalf("ban 100 = %v, want cap %v", got, loginMaxBan)
+	}
+}
+
+func TestRecordDailyUsageRollsOverWithoutCoreConfigChange(t *testing.T) {
+	a := testApp(t)
+	yesterday := time.Now().AddDate(0, 0, -1).In(config.PanelLocation).Format("2006-01-02")
+	if err := a.store.Update(func(s *config.State) error {
+		s.DailyDate = yesterday
+		s.DailyAnchor = 100
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(a.runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.recordDailyUsage(250, time.Now())
+	snap := a.store.Snapshot()
+	today := time.Now().In(config.PanelLocation).Format("2006-01-02")
+	if snap.DailyDate != today {
+		t.Fatalf("DailyDate = %q, want %q", snap.DailyDate, today)
+	}
+	if snap.DailyAnchor != 250 {
+		t.Fatalf("DailyAnchor = %d, want 250", snap.DailyAnchor)
+	}
+	if len(snap.DailyUsage) != 1 || snap.DailyUsage[0].Date != yesterday || snap.DailyUsage[0].Bytes != 150 {
+		t.Fatalf("unexpected daily usage rows: %+v", snap.DailyUsage)
+	}
+	after, err := os.ReadFile(a.runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("daily rollover must not change the generated sing-box config")
+	}
+}

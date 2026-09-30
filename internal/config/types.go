@@ -105,25 +105,25 @@ type Inbound struct {
 }
 
 type Client struct {
-	ID                 string            `json:"id"`
-	Username           string            `json:"username"`
-	SubscriptionSuffix string            `json:"subscriptionSuffix,omitempty"`
-	InboundIDs         []string          `json:"inboundIds"`
-	Credentials        map[string]string `json:"credentials"`
-	TUICPasswords      map[string]string `json:"tuicPasswords,omitempty"`
-	TotalLimitBytes    int64             `json:"totalLimitBytes"`
-	MonthlyLimitBytes  int64             `json:"monthlyLimitBytes"`
-	UsedBytes          int64             `json:"usedBytes"`
-	UploadBytes        int64             `json:"uploadBytes"`
-	DownloadBytes      int64             `json:"downloadBytes"`
+	ID                   string            `json:"id"`
+	Username             string            `json:"username"`
+	SubscriptionSuffix   string            `json:"subscriptionSuffix,omitempty"`
+	InboundIDs           []string          `json:"inboundIds"`
+	Credentials          map[string]string `json:"credentials"`
+	TUICPasswords        map[string]string `json:"tuicPasswords,omitempty"`
+	TotalLimitBytes      int64             `json:"totalLimitBytes"`
+	MonthlyLimitBytes    int64             `json:"monthlyLimitBytes"`
+	UsedBytes            int64             `json:"usedBytes"`
+	UploadBytes          int64             `json:"uploadBytes"`
+	DownloadBytes        int64             `json:"downloadBytes"`
 	MonthlyUsedBytes     int64             `json:"monthlyUsedBytes"`
 	MonthlyDownloadBytes int64             `json:"monthlyDownloadBytes,omitempty"`
-	Month              string            `json:"month"`
-	ExpiresAt          string            `json:"expiresAt,omitempty"`
-	MaxOnlineIPs       int               `json:"maxOnlineIps"`
-	Paused             bool              `json:"paused"`
-	LastActiveAt       time.Time         `json:"lastActiveAt,omitempty"`
-	CreatedAt          time.Time         `json:"createdAt"`
+	Month                string            `json:"month"`
+	ExpiresAt            string            `json:"expiresAt,omitempty"`
+	MaxOnlineIPs         int               `json:"maxOnlineIps"`
+	Paused               bool              `json:"paused"`
+	LastActiveAt         time.Time         `json:"lastActiveAt,omitempty"`
+	CreatedAt            time.Time         `json:"createdAt"`
 }
 
 func DefaultState(domain string) State {

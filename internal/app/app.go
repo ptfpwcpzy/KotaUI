@@ -61,8 +61,29 @@ type App struct {
 }
 
 type loginAttempt struct {
-	count   int
-	blocked time.Time
+	count        int       // failures within the current window
+	windowStart  time.Time // start of the current counting window
+	blockedUntil time.Time // zero when not banned
+	bans         int       // bans served; drives ban escalation
+}
+
+const (
+	loginMaxAttempts   = 5
+	loginAttemptWindow = 10 * time.Minute // quiet IP resets its failure count
+	loginMaxBan        = 24 * time.Hour
+	loginFailMapCap    = 1024
+)
+
+// loginBanDuration escalates per ban: 1m, 2m, 4m, … capped at 24h.
+func loginBanDuration(bans int) time.Duration {
+	d := time.Minute
+	for i := 1; i < bans; i++ {
+		d *= 2
+		if d >= loginMaxBan {
+			return loginMaxBan
+		}
+	}
+	return d
 }
 
 func New(runtime config.Runtime) (*App, error) {
@@ -265,20 +286,52 @@ func (a *App) loginBlocked(r *http.Request) bool {
 	a.loginMu.Lock()
 	defer a.loginMu.Unlock()
 	attempt, exists := a.loginFails[loginClientKey(r)]
-	return exists && time.Now().Before(attempt.blocked)
+	return exists && time.Now().Before(attempt.blockedUntil)
 }
 
 func (a *App) noteLoginFailure(r *http.Request) {
 	a.loginMu.Lock()
 	defer a.loginMu.Unlock()
 	key := loginClientKey(r)
+	now := time.Now()
 	attempt := a.loginFails[key]
-	attempt.count++
-	if attempt.count >= 5 {
-		attempt.blocked = time.Now().Add(time.Minute)
+	if now.Sub(attempt.windowStart) > loginAttemptWindow {
 		attempt.count = 0
+		attempt.windowStart = now
+	}
+	attempt.count++
+	if attempt.count >= loginMaxAttempts {
+		attempt.bans++
+		attempt.blockedUntil = now.Add(loginBanDuration(attempt.bans))
+		attempt.count = 0
+		attempt.windowStart = now
 	}
 	a.loginFails[key] = attempt
+	a.sweepLoginFailsLocked(now)
+}
+
+// sweepLoginFailsLocked drops stale entries so a distributed attack can't
+// grow the map without bound. Callers must hold loginMu.
+func (a *App) sweepLoginFailsLocked(now time.Time) {
+	if len(a.loginFails) <= loginFailMapCap {
+		return
+	}
+	for key, attempt := range a.loginFails {
+		if now.After(attempt.blockedUntil) && now.Sub(attempt.windowStart) > loginAttemptWindow {
+			delete(a.loginFails, key)
+		}
+	}
+	for len(a.loginFails) > loginFailMapCap {
+		oldestKey := ""
+		var oldest time.Time
+		first := true
+		for key, attempt := range a.loginFails {
+			if first || attempt.windowStart.Before(oldest) {
+				oldestKey, oldest, first = key, attempt.windowStart, false
+			}
+		}
+		delete(a.loginFails, oldestKey)
+	}
 }
 
 func (a *App) clearLoginFailures(r *http.Request) {
@@ -351,11 +404,11 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	uptimeNow := time.Now()
 	bootSeconds := procBootSeconds()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"metrics":       system.Collect(a.runtime.DataDir, ports),
-		"activeClients": active,
+		"metrics":             system.Collect(a.runtime.DataDir, ports),
+		"activeClients":       active,
 		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
-		"panelUptime":   panelUptimeSeconds(a.startedAt, bootSeconds),
-		"coreUptime":         coreUptimeSeconds(uptimeNow, bootSeconds),
+		"panelUptime":         panelUptimeSeconds(a.startedAt, bootSeconds),
+		"coreUptime":          coreUptimeSeconds(uptimeNow, bootSeconds),
 		"inboundCount":        len(s.Inbounds),
 		"clientCount":         len(s.Clients),
 		"totalUsed":           totalUsed,
@@ -915,9 +968,9 @@ type settingsUpdateRequest struct {
 	OutboundStrategy  string                    `json:"outboundStrategy"`
 	BlockedDomains    []string                  `json:"blockedDomains"`
 	BlockBitTorrent   *bool                     `json:"blockBitTorrent"`
-	MonthlyQuotaGB   *int                      `json:"monthlyQuotaGB"`
-	BandwidthMbps    *int                      `json:"bandwidthMbps"`
-	TrafficDirection *string                   `json:"trafficDirection"`
+	MonthlyQuotaGB    *int                      `json:"monthlyQuotaGB"`
+	BandwidthMbps     *int                      `json:"bandwidthMbps"`
+	TrafficDirection  *string                   `json:"trafficDirection"`
 }
 
 func dashboardQuota(v int) int {
@@ -1111,6 +1164,20 @@ func (a *App) mutate(fn func(*config.State) error) error {
 	}
 	return a.restartManagedSingBox()
 }
+
+// persistStateOnly persists a state mutation (regenerating the sing-box
+// config file) without restarting the core. Use it for bookkeeping that
+// never affects the generated core config, e.g. the daily usage rollover,
+// so routine accounting doesn't drop active connections.
+func (a *App) persistStateOnly(fn func(*config.State) error) error {
+	if a.updateIsRunning() {
+		return errors.New("面板更新正在执行，暂不能修改配置")
+	}
+	if a.settingsApplyInProgress() {
+		return errors.New("设置正在应用，暂不能修改配置")
+	}
+	return a.commitConfigMutation(fn)
+}
 func (a *App) resetMonth() {
 	if a.updateIsRunning() || a.settingsApplyInProgress() {
 		return
@@ -1153,7 +1220,9 @@ func (a *App) recordDailyUsage(totalUsed int64, now time.Time) {
 	if current := a.store.Snapshot(); current.DailyDate == today {
 		return
 	}
-	_ = a.mutate(func(s *config.State) error {
+	// Daily usage bookkeeping never touches the generated sing-box config,
+	// so persist without restarting the core.
+	_ = a.persistStateOnly(func(s *config.State) error {
 		if s.DailyDate == "" {
 			s.DailyDate = today
 			s.DailyAnchor = totalUsed
