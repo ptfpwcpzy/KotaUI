@@ -121,10 +121,31 @@ func readRuntimeEnv(path string) (map[string]string, error) {
 		}
 		pair := strings.SplitN(line, "=", 2)
 		if len(pair) == 2 {
-			values[pair[0]] = strings.Trim(strings.TrimSpace(pair[1]), "\"")
+			key := strings.TrimSpace(pair[0])
+			values[key] = shellUnquote(pair[1])
 		}
 	}
 	return values, scanner.Err()
+}
+
+// shellUnquote 解析 shell 风格的引号：install.sh 用单引号写值（含 '\” 转义），
+// systemd EnvironmentFile / OpenRC 侧也可能出现双引号。只有首尾成对包裹时才去引号，
+// 值中间的引号原样保留；无引号时原样返回。与旧逻辑（粗暴 Trim 双引号）相比，
+// 已部署的单引号文件能被正确解析，且不会误伤合法值。
+func shellUnquote(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 {
+		if s[0] == '\'' && s[len(s)-1] == '\'' {
+			return strings.ReplaceAll(s[1:len(s)-1], `'\''`, "'")
+		}
+		if s[0] == '"' && s[len(s)-1] == '"' {
+			r := s[1 : len(s)-1]
+			r = strings.ReplaceAll(r, `\\`, "\x00")
+			r = strings.ReplaceAll(r, `\"`, `"`)
+			return strings.ReplaceAll(r, "\x00", `\`)
+		}
+	}
+	return s
 }
 
 func portValue(name, raw string, minimum int) (int, error) {

@@ -20,7 +20,9 @@ SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git
 BUILD_TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic}
 GO_BIN=${KOTAUI_GO_BIN:-go}
 prepare_go_cache
-WORKDIR=$(mktemp -d)
+# sing-box 源码体积不小；Alpine 的 /var/tmp 常为 tmpfs，clone 到内存盘可能写满。
+# 工作目录放到 $HOME 下的磁盘目录。
+WORKDIR=$(mktemp -d "${HOME:-/root}/kotaui-build-work.XXXXXX")
 trap 'rm -rf "$WORKDIR"' EXIT INT TERM
 
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' '构建兼容 sing-box 核心需要 root 权限。' >&2; exit 1; }

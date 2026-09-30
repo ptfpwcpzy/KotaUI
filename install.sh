@@ -6,10 +6,11 @@ prepare_go_cache() {
   export TMPDIR=/var/tmp/kotaui-build
   export GOTMPDIR=/var/tmp/kotaui-build
   if [ -z "${HOME:-}" ] || [ "$HOME" = / ]; then export HOME=/root; fi
-  export GOPATH="${GOPATH:-/var/tmp/kotaui-build/gopath}"
-  export GOMODCACHE="${GOMODCACHE:-/var/tmp/kotaui-build/gomodcache}"
-  export GOCACHE="${GOCACHE:-/var/tmp/kotaui-build/gocache}"
-  install -d -m 700 "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+  # Alpine often mounts /var/tmp on tmpfs. A module cache there is discarded,
+  # so every update downloads modules and recompiles. Reuse the persistent
+  # cache under $HOME instead.
+  unset GOPATH GOMODCACHE GOCACHE
+  install -d -m 700 "$HOME/go/pkg/mod" "$HOME/.cache/go-build"
 }
 
 PREFIX=${KOTAUI_PREFIX:-/opt/kotaui}
@@ -90,6 +91,38 @@ prepare_go_toolchain(){
 	if [ "$GO_TOOLCHAIN_DIR" != "$parent/go" ]; then mv "$parent/go" "$GO_TOOLCHAIN_DIR"; fi
 	GO_BIN="$GO_TOOLCHAIN_DIR/bin/go"
 	go_meets_requirement "$GO_BIN" || fail 'Go 工具链版本不符合项目要求。'
+}
+
+# 尝试从 GitHub Release 下载预编译二进制并校验 SHA256。
+# 用法：fetch_prebuilt <资产名前缀> <目标路径>，成功返回 0。
+# 设 KOTAUI_BUILD_FROM_SOURCE=1 可强制跳过、走源码编译；
+# KOTAUI_RELEASE_BASE 可覆盖下载地址（默认 latest release）。
+fetch_prebuilt(){
+  [ "${KOTAUI_BUILD_FROM_SOURCE:-0}" = 1 ] && return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v sha256sum >/dev/null 2>&1 || return 1
+  case "$(uname -m)" in
+    x86_64|amd64) _fb_arch=amd64;;
+    aarch64|arm64) _fb_arch=arm64;;
+    *) return 1;;
+  esac
+  _fb_base=${KOTAUI_RELEASE_BASE:-https://github.com/ptfpwcpzy/KotaUI/releases/latest/download}
+  _fb_asset="$1-linux-$_fb_arch"
+  _fb_tmp=$(mktemp) || return 1
+  _fb_ok=0
+  if curl -fsSL --retry 2 --connect-timeout 10 "$_fb_base/$_fb_asset" -o "$_fb_tmp" 2>/dev/null; then
+    _fb_sum=$(curl -fsSL --retry 2 --connect-timeout 10 "$_fb_base/$_fb_asset.sha256" 2>/dev/null | awk '{print $1}')
+    case "$_fb_sum" in
+      ''|*[!0-9a-f]*) _fb_sum="";;
+      *) [ "${#_fb_sum}" -eq 64 ] || _fb_sum="";;
+    esac
+    if [ -n "$_fb_sum" ] && [ "$(sha256sum "$_fb_tmp" | awk '{print $1}')" = "$_fb_sum" ]; then
+      chmod 755 "$_fb_tmp"
+      mv -f "$_fb_tmp" "$2" && _fb_ok=1
+    fi
+  fi
+  rm -f "$_fb_tmp"
+  [ "$_fb_ok" = 1 ]
 }
 
 choose_certificate(){
@@ -182,18 +215,26 @@ acquire_certificate(){
 }
 
 install_program(){
-  prepare_go_cache
   if [ -z "$SOURCE_DIR" ]; then SOURCE_DIR=$(mktemp -d); trap 'rm -rf "$SOURCE_DIR"' EXIT; git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$SOURCE_DIR"; fi
   [ -f "$SOURCE_DIR/go.mod" ] || fail '未找到 KotaUI Go 源码。'
-  step '5 / 6' '构建 KotaUI 与用户流量统计核心'
+  step '5 / 6' '准备 KotaUI 与用户流量统计核心'
   install -d -m 755 "$PREFIX" "$PREFIX/bin" "$DATA_DIR" "$DATA_DIR/sing-box" /usr/local/lib/kotaui
   install -m 755 "$SOURCE_DIR/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
-	(cd "$SOURCE_DIR" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
 	install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
 	install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
 	install -m 755 "$SOURCE_DIR/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
-	KOTAUI_GO_BIN="$GO_BIN" "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"
+  # 优先使用 CI 预编译二进制：更快，且低配机器无需现场编译（省内存/磁盘/时间）。
+  # 设 KOTAUI_BUILD_FROM_SOURCE=1 可强制走源码编译。
+  if fetch_prebuilt kotaui "$PREFIX/kotaui" && fetch_prebuilt sing-box-v2ray "$PREFIX/sing-box-v2ray"; then
+    ok '已使用预编译二进制（面板与 sing-box 核心）。'
+  else
+    printf '未获取到可用的预编译二进制，回退到源码编译。\n'
+    prepare_go_cache
+    prepare_go_toolchain
+    (cd "$SOURCE_DIR" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui)
+    KOTAUI_GO_BIN="$GO_BIN" "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray"
+  fi
   cat > "$DATA_DIR/runtime.env" <<EOF
 KOTAUI_DATA_DIR=$DATA_DIR
 KOTAUI_LISTEN=0.0.0.0:$PANEL_PORT
@@ -258,7 +299,6 @@ choose_certificate
 choose_panel
 choose_admin
 install_packages
-prepare_go_toolchain
 prepare_ip_certbot
 install_program
 acquire_certificate

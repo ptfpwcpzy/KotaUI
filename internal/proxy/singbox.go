@@ -78,7 +78,10 @@ func Write(state config.State, runtime config.Runtime) error {
 		directOutbound["domain_strategy"] = strategy
 	}
 	root := map[string]any{
-		"log":       map[string]any{"level": "info", "output": filepath.Join(runtime.DataDir, "singbox-access.log"), "timestamp": true},
+		// 只记录 error 级别且输出到 stderr：由 systemd-journald / OpenRC 统一收集并轮转，
+		// 避免在小磁盘 VPS 上因 info 级 access 日志无限增长写满磁盘。面板日志页读取的
+		// 正是服务 stdout/stderr（journalctl / /var/log/kotaui-singbox.log），不受影响。
+		"log":       map[string]any{"level": "error", "timestamp": true},
 		"inbounds":  inbounds,
 		"outbounds": []map[string]any{directOutbound},
 		"experimental": map[string]any{
