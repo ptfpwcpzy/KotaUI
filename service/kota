@@ -96,38 +96,6 @@ backup(){
 
 renew(){ "$BIN_DIR/kota-cert-renew" && printf '续签检查完成。\n'; pause; }
 
-# 尝试从 GitHub Release 下载预编译二进制并校验 SHA256。
-# 用法：fetch_prebuilt <资产名前缀> <目标路径>，成功返回 0。
-# 设 KOTAUI_BUILD_FROM_SOURCE=1 可强制跳过、走源码编译；
-# KOTAUI_RELEASE_BASE 可覆盖下载地址（默认 latest release）。
-fetch_prebuilt(){
-  [ "${KOTAUI_BUILD_FROM_SOURCE:-0}" = 1 ] && return 1
-  command -v curl >/dev/null 2>&1 || return 1
-  command -v sha256sum >/dev/null 2>&1 || return 1
-  case "$(uname -m)" in
-    x86_64|amd64) _fb_arch=amd64;;
-    aarch64|arm64) _fb_arch=arm64;;
-    *) return 1;;
-  esac
-  _fb_base=${KOTAUI_RELEASE_BASE:-https://github.com/ptfpwcpzy/KotaUI/releases/latest/download}
-  _fb_asset="$1-linux-$_fb_arch"
-  _fb_tmp=$(mktemp) || return 1
-  _fb_ok=0
-  if curl -fsSL --retry 2 --connect-timeout 10 "$_fb_base/$_fb_asset" -o "$_fb_tmp" 2>/dev/null; then
-    _fb_sum=$(curl -fsSL --retry 2 --connect-timeout 10 "$_fb_base/$_fb_asset.sha256" 2>/dev/null | awk '{print $1}')
-    case "$_fb_sum" in
-      ''|*[!0-9a-f]*) _fb_sum="";;
-      *) [ "${#_fb_sum}" -eq 64 ] || _fb_sum="";;
-    esac
-    if [ -n "$_fb_sum" ] && [ "$(sha256sum "$_fb_tmp" | awk '{print $1}')" = "$_fb_sum" ]; then
-      chmod 755 "$_fb_tmp"
-      mv -f "$_fb_tmp" "$2" && _fb_ok=1
-    fi
-  fi
-  rm -f "$_fb_tmp"
-  [ "$_fb_ok" = 1 ]
-}
-
 update(){
   if [ "${1:-}" != "--yes" ]; then
     printf '将下载、编译并替换 KotaUI 程序，现有配置与证书不会变动。继续请输入 y [y/N]： '
@@ -138,18 +106,11 @@ update(){
   prepare_go_cache
   source=$(mktemp -d /var/tmp/kotaui-build/src.XXXXXX)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; update_status failed '下载更新失败，请检查网络或更新日志。'; printf '下载更新失败。\n' >&2; return 1; fi
-  # 优先使用预编译二进制：更快，且低配机器无需现场编译。失败时回退源码编译；
-  # 设 KOTAUI_BUILD_FROM_SOURCE=1 可强制走源码编译。
-  update_status running '正在获取预编译二进制…'
-  if fetch_prebuilt kotaui "$source/kotaui" && fetch_prebuilt sing-box-v2ray "$source/sing-box-v2ray"; then
-    update_status running '已下载预编译二进制，跳过源码编译。'
-  else
-    if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
-    update_status running '正在构建兼容 sing-box 核心…'
-    if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
-    update_status running '正在构建 KotaUI 面板程序…'
-    if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
-  fi
+  if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
+  update_status running '正在构建兼容 sing-box 核心…'
+  if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
+  update_status running '正在构建 KotaUI 面板程序…'
+  if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在原子替换程序与维护脚本…'
   install -m 755 "$source/kotaui" "$PREFIX/kotaui.new"
   install -m 755 "$source/sing-box-v2ray" "$PREFIX/sing-box-v2ray.new"
