@@ -1,0 +1,51 @@
+name: release
+
+# 推送 v* 标签时，预编译面板与 sing-box 统计核心并发布到 Release。
+# install.sh / kota update 会优先下载这些预编译二进制（SHA256 校验），
+# 低配 VPS 无需现场编译，失败时自动回退源码编译。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # sing-box v1.13.x 需要 Go >= 1.24；面板本身兼容 1.22+，统一用 1.24
+          go-version: '1.24'
+          cache: true
+
+      - name: 构建 KotaUI 面板
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -trimpath -ldflags='-s -w' -o kotaui-linux-${{ matrix.arch }} ./cmd/kotaui
+
+      - name: 构建 sing-box 统计核心
+        env:
+          GOARCH: ${{ matrix.arch }}
+          KOTAUI_GO_BIN: go
+        # 构建脚本要求 root（安装到目标路径），用 sudo -E 保留环境变量
+        run: sudo -E sh service/kota-build-singbox-stats "$PWD/sing-box-v2ray-linux-${{ matrix.arch }}"
+
+      - name: 生成 SHA256 校验文件
+        run: |
+          sha256sum kotaui-linux-${{ matrix.arch }} | awk '{print $1}' > kotaui-linux-${{ matrix.arch }}.sha256
+          sha256sum sing-box-v2ray-linux-${{ matrix.arch }} | awk '{print $1}' > sing-box-v2ray-linux-${{ matrix.arch }}.sha256
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            kotaui-linux-${{ matrix.arch }}
+            kotaui-linux-${{ matrix.arch }}.sha256
+            sing-box-v2ray-linux-${{ matrix.arch }}
+            sing-box-v2ray-linux-${{ matrix.arch }}.sha256
