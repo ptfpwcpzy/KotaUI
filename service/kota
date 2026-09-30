@@ -221,7 +221,6 @@ EOF
 
 case "${1:-}" in
   status) status;;
-  login-info) panel_login_info;;
   check) health;;
   restart) svc kotaui restart; svc kotaui-singbox restart;;
   update) update "${2:-}";;
