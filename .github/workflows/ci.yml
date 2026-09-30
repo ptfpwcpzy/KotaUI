@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: gofmt 检查
+        run: test -z "$(gofmt -l cmd internal)"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: 构建
+        run: CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' ./...
+
+      - name: 单元测试
+        run: go test ./...
+
+      - name: shell 脚本语法检查
+        run: |
+          sh -n install.sh
+          for f in service/kota service/kota-cert-renew service/kota-build-singbox-stats service/kotaui-update-run service/kotaui-wait-singbox-config test/fake-rc-service.sh; do
+            sh -n "$f"
+          done
