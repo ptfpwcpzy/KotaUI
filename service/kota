@@ -96,6 +96,15 @@ backup(){
 
 renew(){ "$BIN_DIR/kota-cert-renew" && printf '续签检查完成。\n'; pause; }
 
+panel_login_info(){
+  clear_screen
+  printf '%s\n' '================ 面板登录信息 ================'
+  printf '面板地址： https://%s:%s%s\n' "${KOTAUI_DOMAIN:-}" "${KOTAUI_PANEL_PORT:-}" "${KOTAUI_PANEL_PATH:-}"
+  printf '登录账号： %s\n' "${KOTAUI_ADMIN_USER:-}"
+  printf '登录密码： %s\n' "${KOTAUI_ADMIN_PASSWORD:-}"
+  pause
+}
+
 update(){
   if [ "${1:-}" != "--yes" ]; then
     printf '将下载、编译并替换 KotaUI 程序，现有配置与证书不会变动。继续请输入 y [y/N]： '
@@ -196,6 +205,7 @@ menu(){
   3) 查看日志          4) 健康检查
   5) 证书续签          6) 备份
   7) 更新 KotaUI       8) 卸载
+  9) 面板登录信息
   0) 退出
 ------------------------------------------------------------
 EOF
@@ -203,6 +213,7 @@ EOF
     case "$choice" in
       1) status;; 2) service_menu;; 3) logs;; 4) health || true;;
       5) renew;; 6) backup;; 7) update;; 8) uninstall; exit 0;;
+      9) panel_login_info;;
       0) exit 0;; *) printf '无效选择。\n'; sleep 1;;
     esac
   done
@@ -210,6 +221,7 @@ EOF
 
 case "${1:-}" in
   status) status;;
+  login-info) panel_login_info;;
   check) health;;
   restart) svc kotaui restart; svc kotaui-singbox restart;;
   update) update "${2:-}";;
