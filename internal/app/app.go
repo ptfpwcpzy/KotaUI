@@ -49,6 +49,7 @@ type App struct {
 	updateMessage       string
 	settingsApplyMu     sync.Mutex
 	settingsApplying    bool
+	settingsApplyErr    string
 	certificateRenewMu  sync.Mutex
 	certificateRenewing bool
 	pings               *pingManager
@@ -111,6 +112,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/clients", a.auth(a.clients))
 	mux.HandleFunc("/api/clients/", a.auth(a.clientAction))
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
+	mux.HandleFunc("/api/settings/apply-status", a.auth(a.settingsApplyStatusHandler))
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
 	mux.HandleFunc("/api/reality/test-all", a.auth(a.sniTestAll))
 	mux.HandleFunc("/api/services/", a.auth(a.serviceAction))
@@ -896,6 +898,16 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	settings := a.store.Snapshot().Settings
 	writeJSON(w, http.StatusAccepted, map[string]any{"settings": settings, "applied": false, "message": "访问控制设置已保存，正在重启 sing-box 核心并检查恢复。"})
+}
+
+// settingsApplyStatusHandler 供前端轮询设置应用任务：是否还在执行、最近一次是否失败。
+func (a *App) settingsApplyStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	applying, applyErr := a.settingsApplyStatus()
+	writeJSON(w, http.StatusOK, map[string]any{"applying": applying, "error": applyErr})
 }
 
 type settingsUpdateRequest struct {
