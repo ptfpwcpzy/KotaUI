@@ -18,12 +18,12 @@ else
 fi
 
 # ---------------- Banner ----------------
-banner_k='██ ██
-██ ██
-██ ██
-█████
-██ ██
-██ ██'
+banner_k='██   ██
+██  ██ 
+████   
+████   
+██  ██ 
+██   ██'
 banner_o=' ██████ 
 ██    ██
 ██    ██
@@ -68,7 +68,7 @@ print_banner(){
   cols=$(tput cols 2>/dev/null || echo 80)
   case "$cols" in ''|*[!0-9]*) cols=80;; esac
   indent=2
-  if [ "$cols" -gt 61 ]; then indent=$(( (cols - 57) / 2 )); fi
+  if [ "$cols" -gt 63 ]; then indent=$(( (cols - 59) / 2 )); fi
   pad=$(printf '%*s' "$indent" '')
   row=1
   while [ "$row" -le 6 ]; do
