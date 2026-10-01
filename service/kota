@@ -316,9 +316,12 @@ menu(){
     printf '\n'
     menu_status
     printf '\n'
-    printf '  %s1%s  面板登录信息      %s2%s  服务控制\n' "$C_CYAN" "$C_RST" "$C_CYAN" "$C_RST"
-    printf '  %s3%s  查看日志          %s4%s  证书续签\n' "$C_CYAN" "$C_RST" "$C_CYAN" "$C_RST"
-    printf '  %s5%s  更新 KotaUI       %s6%s  卸载 KotaUI\n' "$C_CYAN" "$C_RST" "$C_CYAN" "$C_RST"
+    printf '  %s1%s  面板登录信息\n' "$C_CYAN" "$C_RST"
+    printf '  %s2%s  服务控制\n' "$C_CYAN" "$C_RST"
+    printf '  %s3%s  查看日志\n' "$C_CYAN" "$C_RST"
+    printf '  %s4%s  证书续签\n' "$C_CYAN" "$C_RST"
+    printf '  %s5%s  更新 KotaUI\n' "$C_CYAN" "$C_RST"
+    printf '  %s6%s  卸载 KotaUI\n' "$C_CYAN" "$C_RST"
     printf '  %s0%s  退出\n' "$C_CYAN" "$C_RST"
     printf '\n  请选择 [0-6]： '; IFS= read -r choice || true
     case "$choice" in
