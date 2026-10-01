@@ -7,7 +7,7 @@
 
   function fields(type, existing) {
     if (type !== 'tuic') return window.protocolFields(type, existing);
-    return `<div class="tuic-note"><i>i</i><div><b>TUIC 自动配置</b>复用面板证书和域名；客户端 UUID、密码、TLS、原生 UDP 中继与安全默认项会自动生成。</div></div>`;
+    return '';
   }
 
   window.inboundModal = function inboundModalWithTUIC(existing, forcedType) {
@@ -24,6 +24,9 @@
         input.port = Number(input.port);
         input.handshakePort = Number(input.handshakePort || 443);
         input.useIPv6 = form.get('useIPv6') === 'on';
+        const obfsOn = form.get('obfsEnabled') === 'on';
+        input.obfsPassword = obfsOn ? ((existing && existing.obfsPassword) || window.randomHex(16)) : '';
+        delete input.obfsEnabled;
         input.upMbps = Number(input.upMbps || 0);
         input.downMbps = Number(input.downMbps || 0);
         const created = await window.api(existing ? `/api/inbounds/${existing.id}` : '/api/inbounds', {method: existing ? 'PATCH' : 'POST', body: JSON.stringify(input)});

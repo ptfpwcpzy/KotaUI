@@ -1429,14 +1429,15 @@ func validateInbound(v *config.Inbound) error {
 			v.ShortID = config.RandomHex(8)
 		}
 	case "hysteria2":
-		if v.SNI == "" {
-			return errors.New("Hysteria 2 需要 TLS server_name")
+		// TLS server_name 固定使用安装域名（runtime.Domain），此处不再强制要求；
+		// 若传入则做格式归一化，保持历史数据干净。
+		if v.SNI != "" {
+			sni, err := normalizeSNIHost(v.SNI)
+			if err != nil {
+				return fmt.Errorf("Hysteria 2 TLS server_name 无效：%w", err)
+			}
+			v.SNI = sni
 		}
-		sni, err := normalizeSNIHost(v.SNI)
-		if err != nil {
-			return fmt.Errorf("Hysteria 2 TLS server_name 无效：%w", err)
-		}
-		v.SNI = sni
 		if v.UpMbps == 0 {
 			v.UpMbps = 500
 		}
