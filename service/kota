@@ -23,11 +23,103 @@ RUNTIME_ENV="$DATA_DIR/runtime.env"
 set -a; . "$RUNTIME_ENV"; set +a
 INTERACTIVE=0
 
+# ---------- 颜色（与安装器一致，非终端自动降级） ----------
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  _e=$(printf '\033')
+  C_RST="${_e}[0m"; C_BOLD="${_e}[1m"; C_DIM="${_e}[2m"
+  C_GREEN="${_e}[32m"; C_CYAN="${_e}[36m"; C_RED="${_e}[31m"
+  C_B1="${_e}[38;5;87m"; C_B2="${_e}[38;5;81m"; C_B3="${_e}[38;5;75m"
+  C_B4="${_e}[38;5;99m"; C_B5="${_e}[38;5;141m"; C_B6="${_e}[38;5;177m"
+else
+  C_RST=''; C_BOLD=''; C_DIM=''
+  C_GREEN=''; C_CYAN=''; C_RED=''
+  C_B1=''; C_B2=''; C_B3=''; C_B4=''; C_B5=''; C_B6=''
+fi
+
+# ---------- 渐变 KOTAUI banner（与安装器同款） ----------
+banner_k='██╗  ██╗
+██║ ██╔╝
+█████╔╝
+██╔═██╗
+██║  ██╗
+╚═╝  ╚═╝'
+banner_o=' ██████╗
+██╔═══██╗
+██║   ██║
+██║   ██║
+╚██████╔╝
+ ╚═════╝'
+banner_t='████████╗
+╚══██╔══╝
+   ██║
+   ██║
+   ██║
+   ╚═╝'
+banner_a=' █████╗
+██╔══██╗
+███████║
+██╔══██║
+██║  ██║
+╚═╝  ╚═╝'
+banner_u='██╗   ██╗
+██║   ██║
+██║   ██║
+██║   ██║
+╚██████╔╝
+ ╚═════╝'
+banner_i='██╗
+██║
+██║
+██║
+██║
+╚═╝'
+
+banner_art(){
+  case "$1" in
+    k) printf '%s\n' "$banner_k";;
+    o) printf '%s\n' "$banner_o";;
+    t) printf '%s\n' "$banner_t";;
+    a) printf '%s\n' "$banner_a";;
+    u) printf '%s\n' "$banner_u";;
+    i) printf '%s\n' "$banner_i";;
+  esac
+}
+
+print_banner(){
+  cols=$(tput cols 2>/dev/null || echo 80)
+  case "$cols" in ''|*[!0-9]*) cols=80;; esac
+  indent=2
+  if [ "$cols" -gt 56 ]; then indent=$(( (cols - 52) / 2 )); fi
+  pad=$(printf '%*s' "$indent" '')
+  row=1
+  while [ "$row" -le 6 ]; do
+    line="$pad"
+    for L in k o t a u i; do
+      ln=$(banner_art "$L" | sed -n "${row}p")
+      case "$L" in
+        k) c=$C_B1;; o) c=$C_B2;; t) c=$C_B3;;
+        a) c=$C_B4;; u) c=$C_B5;; i) c=$C_B6;;
+      esac
+      line="${line}${c}${ln}${C_RST}  "
+    done
+    printf '%s\n' "$line"
+    row=$((row + 1))
+  done
+  printf '%s%s          轻量 sing-box 管理面板    作者 · 那么羡慕你%s\n' "$pad" "$C_DIM" "$C_RST"
+}
+
+# ---------- 基础工具 ----------
 clear_screen(){ command -v clear >/dev/null 2>&1 && clear || printf '\033c'; }
-pause(){ [ "$INTERACTIVE" = 1 ] || return 0; printf '\n按 Enter 返回菜单…'; IFS= read -r _ || true; }
+pause(){ [ "$INTERACTIVE" = 1 ] || return 0; printf '\n  按 Enter 返回菜单…'; IFS= read -r _ || true; }
 manager(){ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then printf systemd; else printf openrc; fi; }
 svc(){ if [ "$(manager)" = systemd ]; then systemctl "$2" "$1"; else rc-service "$1" "$2"; fi; }
 running(){ if [ "$(manager)" = systemd ]; then systemctl is-active --quiet "$1"; else rc-service "$1" status >/dev/null 2>&1; fi; }
+page_head(){
+  printf '\n  %s%s%s\n' "$C_BOLD" "$1" "$C_RST"
+  printf '  %s────────────────────────────────%s\n' "$C_DIM" "$C_RST"
+}
+dot(){ if [ "$1" = 0 ]; then printf '%s●%s' "$C_GREEN" "$C_RST"; else printf '%s●%s' "$C_RED" "$C_RST"; fi; }
+
 update_status(){ [ "${KOTAUI_PANEL_UPDATE:-}" = 1 ] || return 0; install -d -m 700 "$DATA_DIR"; update_run_id="${KOTAUI_UPDATE_RUN_ID:-}"; case "$update_run_id" in ''|*[!0-9]*) update_run_id="";; esac; temporary="$DATA_DIR/update.status.tmp.$$"; printf '{"runId":"%s","state":"%s","message":"%s","updatedAt":%s}\n' "$update_run_id" "$1" "$2" "$(date +%s)" > "$temporary" && mv -f "$temporary" "$DATA_DIR/update.status"; }
 go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p'); [ -n "$minor" ] && [ "$minor" -ge 22 ]; }
 ensure_go_toolchain(){
@@ -43,29 +135,56 @@ ensure_go_toolchain(){
   go_meets_requirement "$GO_BIN"
 }
 
-status(){
+# ---------- 状态条 ----------
+cert_ok(){ openssl x509 -checkend 0 -noout -in "$KOTAUI_TLS_CERT" >/dev/null 2>&1; }
+cert_text(){
+  if cert_ok; then
+    end=$(openssl x509 -enddate -noout -in "$KOTAUI_TLS_CERT" 2>/dev/null | cut -d= -f2-)
+    day=$(date -d "$end" +%F 2>/dev/null || true)
+    if [ -n "$day" ]; then printf '有效期至 %s' "$day"; else printf '有效'; fi
+  else
+    printf '无效或缺失'
+  fi
+}
+
+menu_status(){
+  running kotaui && p_ok=1 || p_ok=0
+  running kotaui-singbox && c_ok=1 || c_ok=0
+  cert_ok && cert_ok_flag=1 || cert_ok_flag=0
+  if [ "$p_ok" = 1 ]; then p_dot=$(dot 0); p_txt='运行中'; else p_dot=$(dot 1); p_txt='未运行'; fi
+  if [ "$c_ok" = 1 ]; then c_dot=$(dot 0); c_txt='运行中'; else c_dot=$(dot 1); c_txt='未运行'; fi
+  if [ "$cert_ok_flag" = 1 ]; then cert_dot=$(dot 0); else cert_dot=$(dot 1); fi
+  printf '  %s %s面板服务%s %s    %s %s核心服务%s %s    %s %s证书%s %s\n' \
+    "$p_dot" "$C_DIM" "$C_RST" "$p_txt" \
+    "$c_dot" "$C_DIM" "$C_RST" "$c_txt" \
+    "$cert_dot" "$C_DIM" "$C_RST" "$(cert_text)"
+}
+
+# ---------- 功能页 ----------
+panel_login_info(){
   clear_screen
-  printf '%s\n' '================ KotaUI 状态 ================'
-  printf '面板地址： https://%s:%s%s\n' "$KOTAUI_DOMAIN" "$KOTAUI_PANEL_PORT" "$KOTAUI_PANEL_PATH"
-  printf '面板服务： '; running kotaui && printf '运行中\n' || printf '未运行\n'
-  printf '核心服务： '; running kotaui-singbox && printf '运行中\n' || printf '未运行\n'
-  printf '证书状态： '; openssl x509 -checkend 0 -noout -in "$KOTAUI_TLS_CERT" >/dev/null 2>&1 && printf '有效\n' || printf '无效或缺失\n'
+  page_head '面板登录信息'
+  printf '  面板地址： https://%s:%s%s\n' "${KOTAUI_DOMAIN:-}" "${KOTAUI_PANEL_PORT:-}" "${KOTAUI_PANEL_PATH:-}"
+  printf '  登录账号： %s\n' "${KOTAUI_ADMIN_USER:-}"
+  printf '  登录密码： %s\n' "${KOTAUI_ADMIN_PASSWORD:-}"
   pause
 }
 
 service_menu(){
   clear_screen
-  printf '%s\n' '1) 启动全部服务'
-  printf '%s\n' '2) 停止全部服务'
-  printf '%s\n' '3) 重启全部服务'
-  printf '%s' '请选择： '; IFS= read -r choice || true
+  page_head '服务控制'
+  printf '  %s1%s  启动全部服务\n' "$C_CYAN" "$C_RST"
+  printf '  %s2%s  停止全部服务\n' "$C_CYAN" "$C_RST"
+  printf '  %s3%s  重启全部服务\n' "$C_CYAN" "$C_RST"
+  printf '  %s0%s  返回\n' "$C_CYAN" "$C_RST"
+  printf '\n  请选择 [0-3]： '; IFS= read -r choice || true
   case "$choice" in
     1) svc kotaui start; svc kotaui-singbox start;;
     2) svc kotaui-singbox stop || true; svc kotaui stop || true;;
     3) svc kotaui restart; svc kotaui-singbox restart;;
     *) return 0;;
   esac
-  printf '服务操作已执行。\n'; pause
+  printf '  服务操作已执行。\n'; pause
 }
 
 health(){
@@ -80,28 +199,23 @@ health(){
 
 logs(){
   clear_screen
-  printf '%s\n' '1) KotaUI 面板日志'
-  printf '%s\n' '2) sing-box 核心日志'
-  printf '%s' '请选择： '; IFS= read -r pick || true
+  page_head '查看日志'
+  printf '  %s1%s  KotaUI 面板日志\n' "$C_CYAN" "$C_RST"
+  printf '  %s2%s  sing-box 核心日志\n' "$C_CYAN" "$C_RST"
+  printf '  %s0%s  返回\n' "$C_CYAN" "$C_RST"
+  printf '\n  请选择 [0-2]： '; IFS= read -r pick || true
   unit=kotaui; [ "$pick" = 2 ] && unit=kotaui-singbox
+  [ "$pick" = 1 ] || [ "$pick" = 2 ] || return 0
   if [ "$(manager)" = systemd ]; then journalctl -u "$unit" -n 100 --no-pager; else tail -n 100 "/var/log/$unit.log" 2>/dev/null || true; fi
   pause
 }
 
-backup(){
-  target="/root/kotaui-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-  tar -czf "$target" -C "$DATA_DIR" state.json runtime.env sing-box 2>/dev/null || tar -czf "$target" -C "$DATA_DIR" .
-  printf '备份已保存：%s\n' "$target"; pause
-}
-
-renew(){ "$BIN_DIR/kota-cert-renew" && printf '续签检查完成。\n'; pause; }
-
-panel_login_info(){
-  clear_screen
-  printf '%s\n' '================ 面板登录信息 ================'
-  printf '面板地址： https://%s:%s%s\n' "${KOTAUI_DOMAIN:-}" "${KOTAUI_PANEL_PORT:-}" "${KOTAUI_PANEL_PATH:-}"
-  printf '登录账号： %s\n' "${KOTAUI_ADMIN_USER:-}"
-  printf '登录密码： %s\n' "${KOTAUI_ADMIN_PASSWORD:-}"
+renew(){
+  if "$BIN_DIR/kota-cert-renew"; then
+    printf '续签检查完成。\n'
+  else
+    printf '续签失败，请查看输出。\n' >&2
+  fi
   pause
 }
 
@@ -128,11 +242,11 @@ update(){
   install -d -m 755 /usr/local/lib/kotaui
   install -m 755 "$source/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
-	install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
-	install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
-	install -m 755 "$source/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
+  install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+  install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+  install -m 755 "$source/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
   sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
-	if grep -q '^KOTAUI_GO_BIN=' "$RUNTIME_ENV"; then sed -i "s|^KOTAUI_GO_BIN=.*|KOTAUI_GO_BIN=$GO_BIN|" "$RUNTIME_ENV"; else printf 'KOTAUI_GO_BIN=%s\n' "$GO_BIN" >> "$RUNTIME_ENV"; fi
+  if grep -q '^KOTAUI_GO_BIN=' "$RUNTIME_ENV"; then sed -i "s|^KOTAUI_GO_BIN=.*|KOTAUI_GO_BIN=$GO_BIN|" "$RUNTIME_ENV"; else printf 'KOTAUI_GO_BIN=%s\n' "$GO_BIN" >> "$RUNTIME_ENV"; fi
   update_status running '正在重启面板与 sing-box 核心…'
   if [ "$(manager)" = systemd ]; then
     install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service
@@ -193,37 +307,30 @@ EOF
   printf 'KotaUI 已卸载完成。\n'
 }
 
+# ---------- 主菜单 ----------
 menu(){
   INTERACTIVE=1
   while :; do
     clear_screen
-    cat <<'EOF'
-============================================================
-                    KotaUI 本机管理
-============================================================
-  1) 状态概览          2) 服务控制
-  3) 查看日志          4) 健康检查
-  5) 证书续签          6) 备份
-  7) 更新 KotaUI       8) 卸载
-  9) 面板登录信息
-  0) 退出
-------------------------------------------------------------
-EOF
-    printf '请选择： '; IFS= read -r choice || true
+    print_banner
+    printf '\n'
+    menu_status
+    printf '\n'
+    printf '  %s1%s  面板登录信息      %s2%s  服务控制\n' "$C_CYAN" "$C_RST" "$C_CYAN" "$C_RST"
+    printf '  %s3%s  查看日志          %s4%s  证书续签\n' "$C_CYAN" "$C_RST" "$C_CYAN" "$C_RST"
+    printf '  %s5%s  更新 KotaUI       %s6%s  卸载 KotaUI\n' "$C_CYAN" "$C_RST" "$C_CYAN" "$C_RST"
+    printf '  %s0%s  退出\n' "$C_CYAN" "$C_RST"
+    printf '\n  请选择 [0-6]： '; IFS= read -r choice || true
     case "$choice" in
-      1) status;; 2) service_menu;; 3) logs;; 4) health || true;;
-      5) renew;; 6) backup;; 7) update;; 8) uninstall; exit 0;;
-      9) panel_login_info;;
-      0) exit 0;; *) printf '无效选择。\n'; sleep 1;;
+      1) panel_login_info;; 2) service_menu;; 3) logs;;
+      4) renew;; 5) update;; 6) uninstall; exit 0;;
+      0) exit 0;; *) printf '  无效选择。\n'; sleep 1;;
     esac
   done
 }
 
 case "${1:-}" in
-  status) status;;
-  check) health;;
-  restart) svc kotaui restart; svc kotaui-singbox restart;;
-  update) update "${2:-}";;
-  uninstall) uninstall;;
+  check) health;;            # 安装器内部：等待服务就绪
+  update) update "${2:-}";; # 面板更新流程内部调用
   *) menu;;
 esac
