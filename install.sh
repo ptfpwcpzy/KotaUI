@@ -53,7 +53,7 @@ banner_i='████████
    ██   
    ██   
    ██   
-   ██   '
+████████'
 banner_art(){
   case "$1" in
     k) printf '%s\n' "$banner_k";;
