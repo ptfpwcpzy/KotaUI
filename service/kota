@@ -188,9 +188,9 @@ service_menu(){
 
 health(){
   result=0
-  curl -kfsS --max-time 3 "https://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${KOTAUI_PANEL_PORT}/health" >/dev/null 2>&1 || result=1
+  curl -kfsS --max-time 3 "https://127.0.0.1:${KOTAUI_PANEL_PORT:-}/health" >/dev/null 2>&1 || curl -fsS --max-time 3 "http://127.0.0.1:${KOTAUI_PANEL_PORT:-}/health" >/dev/null 2>&1 || result=1
   curl -ksS --max-time 3 -o /dev/null "https://127.0.0.1:${KOTAUI_SUBSCRIPTION_PORT:-1109}/__health_probe" || result=1
-  "$KOTAUI_SINGBOX_BIN" check -c "$KOTAUI_SINGBOX_CONFIG" >/dev/null 2>&1 || result=1
+  "${KOTAUI_SINGBOX_BIN:-}" check -c "${KOTAUI_SINGBOX_CONFIG:-}" >/dev/null 2>&1 || result=1
   [ "$result" -eq 0 ] && printf '健康检查通过。\n' || printf '健康检查失败，请查看服务日志。\n' >&2
   pause
   return "$result"
@@ -224,6 +224,21 @@ update(){
     IFS= read -r answer || true
     case "$answer" in y|Y) ;; *) return 0;; esac
   fi
+  if command -v flock >/dev/null 2>&1 && exec 9>"$DATA_DIR/update.lock" 2>/dev/null; then
+    if ! flock -n 9 2>/dev/null; then
+      printf '检测到已有更新任务在运行，本次取消。\n' >&2
+      exec 9>&- 2>/dev/null || true
+      return 1
+    fi
+    do_update
+    rc=$?
+    exec 9>&- 2>/dev/null || true
+    return $rc
+  fi
+  do_update
+}
+
+do_update(){
   update_status running '正在下载最新项目源码…'
   prepare_go_cache
   source=$(mktemp -d /var/tmp/kotaui-build/src.XXXXXX)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"time"
@@ -190,7 +191,11 @@ func (a *App) syncTraffic() {
 		err := writeAndValidateConfig(a.store.Snapshot(), a.runtime)
 		a.mu.Unlock()
 		if err == nil {
-			go func() { _ = a.restartManagedSingBox() }()
+			go func() {
+				if err := a.restartManagedSingBox(); err != nil {
+					log.Printf("sing-box 核心重启失败: %v", err)
+				}
+			}()
 		}
 	}
 }

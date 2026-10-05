@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -1210,7 +1211,11 @@ func (a *App) resetMonth() {
 	}); err != nil {
 		return
 	}
-	go func() { _ = a.restartManagedSingBox() }()
+	go func() {
+		if err := a.restartManagedSingBox(); err != nil {
+			log.Printf("sing-box 核心重启失败: %v", err)
+		}
+	}()
 }
 
 func (a *App) recordDailyUsage(totalUsed int64, now time.Time) {
