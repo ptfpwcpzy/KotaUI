@@ -128,10 +128,11 @@ func (a *App) syncTraffic() {
 		return
 	}
 	month := nowTime.Format("2006-01")
+	today := nowTime.In(config.PanelLocation).Format("2006-01-02")
 	needsSave := len(state.TrafficCounters) != len(state.Clients)
 	if !needsSave {
 		for _, client := range state.Clients {
-			if client.Month != month || state.TrafficCounters[client.Username] != current[client.Username] {
+			if client.Month != month || client.DailyDate != today || state.TrafficCounters[client.Username] != current[client.Username] {
 				needsSave = true
 				break
 			}
@@ -153,6 +154,16 @@ func (a *App) syncTraffic() {
 				client.MonthlyUsedBytes = 0
 				client.MonthlyDownloadBytes = 0
 			}
+			if client.DailyDate != today {
+				if client.DailyDate != "" {
+					client.DailyHistory = append(client.DailyHistory, config.DailyUsage{Date: client.DailyDate, Bytes: client.DailyUsedBytes})
+					if len(client.DailyHistory) > 15 {
+						client.DailyHistory = client.DailyHistory[len(client.DailyHistory)-15:]
+					}
+				}
+				client.DailyDate = today
+				client.DailyUsedBytes = 0
+			}
 			now := current[client.Username]
 			before := next.TrafficCounters[client.Username]
 			upload := trafficDelta(now.Upload, before.Upload)
@@ -163,6 +174,7 @@ func (a *App) syncTraffic() {
 				client.UsedBytes += delta
 				client.MonthlyUsedBytes += delta
 				client.MonthlyDownloadBytes += download
+				client.DailyUsedBytes += delta
 				client.LastActiveAt = nowTime.UTC()
 			}
 			next.TrafficCounters[client.Username] = now

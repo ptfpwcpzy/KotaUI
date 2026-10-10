@@ -422,6 +422,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"services":            services,
 		"healthHints":         dashboardHints(s, certificate, services),
 		"dailyTraffic":        lastSevenDays(s, time.Now()),
+		"dailyTrafficByUser": dailyTrafficByUser(s, time.Now()),
 	})
 }
 
@@ -597,6 +598,7 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 		client.ID = config.NewID()
 		client.CreatedAt = time.Now().UTC()
 		client.Month = time.Now().Format("2006-01")
+		client.DailyDate = time.Now().In(config.PanelLocation).Format("2006-01-02")
 		client.Credentials = map[string]string{}
 		client.TUICPasswords = map[string]string{}
 		err = a.mutate(func(s *config.State) error {
@@ -795,6 +797,7 @@ func (a *App) updateClient(id string, request clientCreateRequest) error {
 		target.TUICPasswords = tuicPasswords
 		target.TotalLimitBytes = incoming.TotalLimitBytes
 		target.MonthlyLimitBytes = incoming.MonthlyLimitBytes
+		target.DailyLimitBytes = incoming.DailyLimitBytes
 		target.ExpiresAt = incoming.ExpiresAt
 		target.MaxOnlineIPs = incoming.MaxOnlineIPs
 		if request.RandomSubscriptionSuffix != nil {
@@ -1272,6 +1275,33 @@ func lastSevenDays(s config.State, now time.Time) []map[string]any {
 			bytes = delta
 		}
 		out = append(out, map[string]any{"date": day, "bytes": bytes})
+	}
+	return out
+}
+
+func dailyTrafficByUser(s config.State, now time.Time) []map[string]any {
+	clients := append([]config.Client(nil), s.Clients...)
+	sort.Slice(clients, func(i, j int) bool { return clients[i].Username < clients[j].Username })
+	out := make([]map[string]any, 0, 15)
+	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
+	for i := 14; i >= 0; i-- {
+		day := base.AddDate(0, 0, -i).Format("2006-01-02")
+		users := make([]map[string]any, 0, len(clients))
+		for _, client := range clients {
+			var b int64
+			if day == client.DailyDate {
+				b = client.DailyUsedBytes
+			} else {
+				for _, h := range client.DailyHistory {
+					if h.Date == day {
+						b = h.Bytes
+						break
+					}
+				}
+			}
+			users = append(users, map[string]any{"username": client.Username, "bytes": b})
+		}
+		out = append(out, map[string]any{"date": day, "users": users})
 	}
 	return out
 }

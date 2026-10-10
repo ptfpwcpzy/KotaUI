@@ -119,6 +119,10 @@ type Client struct {
 	MonthlyUsedBytes     int64             `json:"monthlyUsedBytes"`
 	MonthlyDownloadBytes int64             `json:"monthlyDownloadBytes,omitempty"`
 	Month                string            `json:"month"`
+	DailyLimitBytes      int64             `json:"dailyLimitBytes"`
+	DailyUsedBytes       int64             `json:"dailyUsedBytes"`
+	DailyDate            string            `json:"dailyDate,omitempty"`
+	DailyHistory         []DailyUsage      `json:"dailyHistory,omitempty"`
 	ExpiresAt            string            `json:"expiresAt,omitempty"`
 	MaxOnlineIPs         int               `json:"maxOnlineIps"`
 	Paused               bool              `json:"paused"`
@@ -216,6 +220,9 @@ func (c Client) Active(now time.Time) bool {
 		return false
 	}
 	if c.MonthlyLimitBytes > 0 && c.MonthlyUsedBytes >= c.MonthlyLimitBytes {
+		return false
+	}
+	if c.DailyLimitBytes > 0 && c.DailyUsedBytes >= c.DailyLimitBytes {
 		return false
 	}
 	return true
