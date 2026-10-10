@@ -31,10 +31,21 @@ command -v "$GO_BIN" >/dev/null 2>&1 || { printf '%s\n' '未找到 Go，无法�
 
 install -d -m 755 "$(dirname "$DESTINATION")"
 CANDIDATE="$WORKDIR/sing-box"
+need_build=1
 if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
   [ -x "$KOTAUI_SINGBOX_STATS_CORE" ] || { printf '%s\n' '指定的统计核心不可执行。' >&2; exit 1; }
   install -m 755 "$KOTAUI_SINGBOX_STATS_CORE" "$CANDIDATE"
-else
+  need_build=0
+elif [ -n "${KOTAUI_SINGBOX_BIN:-}" ] && [ -x "$KOTAUI_SINGBOX_BIN" ]; then
+  # 更新时线上核心版本未变则跳过重新编译（省掉几分钟）；版本变化、检测失败或指定了自定义核心时正常构建。
+  installed_version=$("$KOTAUI_SINGBOX_BIN" version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+  if [ -n "$installed_version" ] && [ "$installed_version" = "${VERSION#v}" ]; then
+    printf '兼容 sing-box 核心已是 %s，跳过重新构建。\n' "$VERSION"
+    install -m 755 "$KOTAUI_SINGBOX_BIN" "$CANDIDATE"
+    need_build=0
+  fi
+fi
+if [ "$need_build" -eq 1 ]; then
   printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
   git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
 	(cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 "$GO_BIN" build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$CANDIDATE" ./cmd/sing-box)
