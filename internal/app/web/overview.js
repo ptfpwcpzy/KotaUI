@@ -13,7 +13,7 @@
   let networkFailureCount = 0;
 
   const style = document.createElement('style');
-  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}.route-map-host{display:block!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.route-map-card{padding:18px 20px 16px}.route-map-card .sub{color:var(--muted);font-size:12px;margin-top:6px}.route-map-card .sub b{color:var(--ink)}.route-map-card .pathline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px}.route-map-card .pathline b{font-weight:700}.route-map-card .pathline .arr{color:var(--muted)}.route-map-card .pathline .ms{font-weight:700;margin-left:2px}.route-map-card .foot2{display:flex;margin-top:12px;color:var(--muted);font-size:12px}.route-map-card .legend{display:flex;gap:12px;align-items:center}.route-map-card .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}.route-map-card .legend .g{background:#2fbf7a}.route-map-card .legend .o{background:#e69f00}.route-map-card .legend .r{background:#e5484d}.route-map-card .tg{color:#2fbf7a}.route-map-card .to{color:#e69f00}.route-map-card .tr{color:#e5484d}@media(max-width:800px){.route-map-card{padding:16px}}.route-map-card .mapwrap{margin-top:10px;border:1px solid var(--line);border-radius:16px;background:#f7fbff;overflow:hidden}.route-map-card .mapwrap svg{display:block;width:100%;height:auto}.route-land{fill:#e6ecf4;stroke:#d7dfeb;stroke-width:.5}.route-grat{stroke:#e2e9f2;stroke-width:.5;fill:none}.route-line{fill:none;stroke:#3569ee;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.route-flow{fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-dasharray:2 14;animation:route-flow 1.2s linear infinite}@keyframes route-flow{to{stroke-dashoffset:-16}}.route-hop{stroke:#fff;stroke-width:2}.route-lbl{font-size:11px;font-weight:600;fill:#15223a}.route-sub{font-size:10px;fill:#78869a}.route-num{font-size:10px;font-weight:700;fill:#15223a}`;
+  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}.route-map-host{display:block!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.route-map-card{padding:18px 20px 16px}.route-map-card .sub{color:var(--muted);font-size:12px;margin-top:6px}.route-map-card .sub b{color:var(--ink)}.route-map-card .pathline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px}.route-map-card .pathline b{font-weight:700}.route-map-card .pathline .arr{color:var(--muted)}.route-map-card .pathline .ms{font-weight:700;margin-left:2px}.route-map-card .foot2{display:flex;margin-top:12px;color:var(--muted);font-size:12px}.route-map-card .legend{display:flex;gap:12px;align-items:center}.route-map-card .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}.route-map-card .legend .g{background:#2fbf7a}.route-map-card .legend .o{background:#e69f00}.route-map-card .legend .r{background:#e5484d}.route-map-card .tg{color:#2fbf7a}.route-map-card .to{color:#e69f00}.route-map-card .tr{color:#e5484d}@media(max-width:800px){.route-map-card{padding:16px}}.route-map-card .mapwrap{margin-top:10px;border:1px solid var(--line);border-radius:16px;background:#f7fbff;overflow:hidden}.route-map-card .mapwrap svg{display:block;width:100%;height:auto}.route-land{fill:#e6ecf4;stroke:#d7dfeb;stroke-width:.5}.route-grat{stroke:#e2e9f2;stroke-width:.5;fill:none}.route-line{fill:none;stroke:#3569ee;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.route-flow{fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-dasharray:2 14;animation:route-flow 1.2s linear infinite}@keyframes route-flow{to{stroke-dashoffset:-16}}.route-hop{stroke:#fff;stroke-width:2}.route-lbl{font-size:11px;font-weight:600;fill:#15223a}.route-sub{font-size:10px;fill:#78869a}`;
   document.head.append(style);
 
   function displaySeries(targetID, start, end) {
@@ -300,15 +300,7 @@
         svg += `<path class="route-line" d="${d}"/><path class="route-flow" d="${d}"/>`;
       });
       const labeled = [];
-      const placedTexts = [];
       let labelCount = 0;
-      // 找一个不与已放文字重叠的位置（向下错开），给只标数字的跳用。
-      const placeNum = (x, y) => {
-        let px = x, py = y, tries = 0;
-        while (tries < 8 && placedTexts.some(q => Math.hypot(q.x - px, q.y - py) < 13)) { py += 13; tries++; }
-        placedTexts.push({ x: px, y: py });
-        return [px, py];
-      };
       mapHops.forEach((h, i) => {
         const x = routePx(h.sx), y = routePy(h.lat);
         const c = routeTCls(h.ms), col = c === 'tg' ? '#2fbf7a' : c === 'to' ? '#e69f00' : '#e5484d';
@@ -319,12 +311,11 @@
         if (isFirst) {
           const ly = 26, dy = y + ly;
           svg += `<text class="route-lbl" x="${tx.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor}">服务器</text>`;
-          placedTexts.push({ x: tx, y: dy });
           labeled.push({ x, y, ly });
           labelCount += 1;
           return;
         }
-        // 终点始终标名；若与已标点太近，翻到另一侧、改放左边，避开右边的数字。
+        // 终点始终标名；若与已标点太近，翻到另一侧、改放左边，避免重叠。
         if (isLast) {
           let ly = (labelCount % 2 === 0) ? 26 : -16;
           let anchor2 = anchor, tx2 = tx;
@@ -335,23 +326,17 @@
             if (x > 150) { anchor2 = 'end'; tx2 = x - 12; }
           }
           const dy = y + ly;
-          svg += `<text class="route-lbl" x="${tx2.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor2}">${i} · 你的位置</text>`;
+          svg += `<text class="route-lbl" x="${tx2.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor2}">你的位置</text>`;
           svg += `<text class="route-sub" x="${tx2.toFixed(1)}" y="${(dy + 13).toFixed(1)}" text-anchor="${anchor2}">${h.ms.toFixed(1)} ms</text>`;
-          placedTexts.push({ x: tx2, y: dy }, { x: tx2, y: dy + 13 });
           labeled.push({ x, y, ly });
           labelCount += 1;
           return;
         }
-        // 中间跳：挤在一起的只标数字（向下错开，不丢）；不挤的标全名。
-        if (labeled.some(q => Math.hypot(q.x - x, q.y - y) < 20)) {
-          const [nx, ny] = placeNum(x + 10, y - 10);
-          svg += `<text class="route-num" x="${nx.toFixed(1)}" y="${ny.toFixed(1)}" text-anchor="start">${i}</text>`;
-          return;
-        }
+        // 中间跳：挤在一起的不标，只留地名、不标数字。
+        if (labeled.some(q => Math.hypot(q.x - x, q.y - y) < 20)) return;
         const ly = (labelCount % 2 === 0) ? 26 : -16, dy = y + ly;
-        svg += `<text class="route-lbl" x="${tx.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor}">${i} · ${window.esc(h.name)}</text>`;
+        svg += `<text class="route-lbl" x="${tx.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor}">${window.esc(h.name)}</text>`;
         svg += `<text class="route-sub" x="${tx.toFixed(1)}" y="${(dy + 13).toFixed(1)}" text-anchor="${anchor}">${h.ms.toFixed(1)} ms</text>`;
-        placedTexts.push({ x: tx, y: dy }, { x: tx, y: dy + 13 });
         labeled.push({ x, y, ly });
         labelCount += 1;
       });
