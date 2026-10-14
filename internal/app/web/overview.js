@@ -13,7 +13,7 @@
   let networkFailureCount = 0;
 
   const style = document.createElement('style');
-  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}.route-map-host{display:block!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.route-map-card{padding:18px 20px 16px}.route-map-card .sub{color:var(--muted);font-size:12px;margin-top:6px}.route-map-card .sub b{color:var(--ink)}.route-map-card .pathline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px}.route-map-card .pathline b{font-weight:700}.route-map-card .pathline .arr{color:var(--muted)}.route-map-card .pathline .ms{font-weight:700;margin-left:2px}.route-map-card .foot2{display:flex;margin-top:12px;color:var(--muted);font-size:12px}.route-map-card .legend{display:flex;gap:12px;align-items:center}.route-map-card .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}.route-map-card .legend .g{background:#2fbf7a}.route-map-card .legend .o{background:#e69f00}.route-map-card .legend .r{background:#e5484d}.route-map-card .tg{color:#2fbf7a}.route-map-card .to{color:#e69f00}.route-map-card .tr{color:#e5484d}@media(max-width:800px){.route-map-card{padding:16px}}.route-map-card .mapwrap{overflow-x:auto;margin-top:10px;border:1px solid var(--line);border-radius:16px;background:#f7fbff}.route-map-card .mapwrap svg{display:block;min-width:680px;width:100%;height:auto}.route-land{fill:#e6ecf4;stroke:#d7dfeb;stroke-width:.5}.route-grat{stroke:#e2e9f2;stroke-width:.5;fill:none}.route-line{fill:none;stroke:#3569ee;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.route-flow{fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-dasharray:2 14;animation:route-flow 1.2s linear infinite}@keyframes route-flow{to{stroke-dashoffset:-16}}.route-hop{stroke:#fff;stroke-width:2}.route-lbl{font-size:11px;font-weight:600;fill:#15223a}.route-sub{font-size:10px;fill:#78869a}`;
+  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}.route-map-host{display:block!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.route-map-card{padding:18px 20px 16px}.route-map-card .sub{color:var(--muted);font-size:12px;margin-top:6px}.route-map-card .sub b{color:var(--ink)}.route-map-card .pathline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px}.route-map-card .pathline b{font-weight:700}.route-map-card .pathline .arr{color:var(--muted)}.route-map-card .pathline .ms{font-weight:700;margin-left:2px}.route-map-card .foot2{display:flex;margin-top:12px;color:var(--muted);font-size:12px}.route-map-card .legend{display:flex;gap:12px;align-items:center}.route-map-card .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}.route-map-card .legend .g{background:#2fbf7a}.route-map-card .legend .o{background:#e69f00}.route-map-card .legend .r{background:#e5484d}.route-map-card .tg{color:#2fbf7a}.route-map-card .to{color:#e69f00}.route-map-card .tr{color:#e5484d}@media(max-width:800px){.route-map-card{padding:16px}}.route-map-card .mapwrap{margin-top:10px;border:1px solid var(--line);border-radius:16px;background:#f7fbff;overflow:hidden}.route-map-card .mapwrap svg{display:block;width:100%;height:auto}.route-land{fill:#e6ecf4;stroke:#d7dfeb;stroke-width:.5}.route-grat{stroke:#e2e9f2;stroke-width:.5;fill:none}.route-line{fill:none;stroke:#3569ee;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.route-flow{fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-dasharray:2 14;animation:route-flow 1.2s linear infinite}@keyframes route-flow{to{stroke-dashoffset:-16}}.route-hop{stroke:#fff;stroke-width:2}.route-lbl{font-size:11px;font-weight:600;fill:#15223a}.route-sub{font-size:10px;fill:#78869a}`;
   document.head.append(style);
 
   function displaySeries(targetID, start, end) {
@@ -199,41 +199,77 @@
     return host;
   }
 
+  // 地图用中国常用样式：以 150°E 为中央经线，中国在左、太平洋居中、美洲在右。
+  // 地图左右边缘是西经 30°，跨过边缘的陆地和路由都在边缘处切开，不横穿整张图。
   const ROUTE_W = 1000, ROUTE_H = 500;
-  function routePx(lon) { return (lon + 180) / 360 * ROUTE_W; }
+  function routeSx(lon) { return ((lon + 30) % 360 + 360) % 360; }
+  function routePx(sx) { return sx / 360 * ROUTE_W; }
   function routePy(lat) { return (85 - lat) / 145 * ROUTE_H; }
   function routeGrat() {
     let d = '';
-    for (let lon = -180; lon <= 180; lon += 30) d += `M${routePx(lon)},0V${ROUTE_H}`;
+    for (let lon = -180; lon < 180; lon += 30) d += `M${routePx(routeSx(lon))},0V${ROUTE_H}`;
     for (let lat = -60; lat <= 90; lat += 30) d += `M0,${routePy(lat)}H${ROUTE_W}`;
     return d;
   }
-  function routeLand() {
-    return LAND.map(poly => {
-      if (poly.length < 3) return '';
-      return 'M' + poly.map(([lon, lat]) => routePx(lon).toFixed(1) + ',' + routePy(lat).toFixed(1)).join('L') + 'Z';
-    }).join('');
-  }
-  // 跨 180° 经线时分段：先画到一侧边缘，再从另一侧边缘进来，不横穿整张图。
-  function routeSplit(hops) {
-    const segs = [];
-    let cur = [[hops[0].lon, hops[0].lat]];
-    for (let i = 1; i < hops.length; i++) {
-      const prev = hops[i - 1], h = hops[i];
-      const dLon = h.lon - prev.lon;
-      if (Math.abs(dLon) > 180) {
-        let edge1, edge2, t;
-        if (dLon > 0) { edge1 = 180; edge2 = -180; t = (180 - prev.lon) / ((180 - prev.lon) + (h.lon + 180)); }
-        else { edge1 = -180; edge2 = 180; t = (prev.lon + 180) / ((prev.lon + 180) + (180 - h.lon)); }
-        const latEdge = prev.lat + (h.lat - prev.lat) * t;
-        cur.push([edge1, latEdge]);
-        segs.push(cur);
-        cur = [[edge2, latEdge], [h.lon, h.lat]];
-      } else {
-        cur.push([h.lon, h.lat]);
+  // 把一组经纬点展开成连续的横坐标（相邻两点差值不超过 180°），
+  // 避免跨过地图边缘的线在输出坐标里横穿整张图。
+  function routeUnwrap(pts) {
+    const out = [];
+    let offset = 0, prevU = null;
+    pts.forEach(([lon, lat]) => {
+      let u = routeSx(lon) + offset;
+      if (prevU !== null) {
+        while (u - prevU > 180) { u -= 360; offset -= 360; }
+        while (u - prevU < -180) { u += 360; offset += 360; }
       }
-    }
-    segs.push(cur);
+      out.push([u, lat]);
+      prevU = u;
+    });
+    return out;
+  }
+  // 陆地：展开后按需平移绘制，超出地图的部分由 clipPath 切掉，格陵兰/南极洲不会拉出横穿线。
+  function routeLand() {
+    let out = '';
+    LAND.forEach(poly => {
+      if (poly.length < 3) return;
+      const pts = routeUnwrap(poly);
+      let umin = Infinity, umax = -Infinity;
+      pts.forEach(([u]) => { if (u < umin) umin = u; if (u > umax) umax = u; });
+      [0, -360, 360].forEach(shift => {
+        if (umax < -shift || umin >= -shift + 360) return;
+        out += `<path class="route-land" clip-path="url(#route-clip)" d="M${pts.map(([u, lat]) => routePx(u + shift).toFixed(1) + ',' + routePy(lat).toFixed(1)).join('L')}Z"/>`;
+      });
+    });
+    return out;
+  }
+  // 路由：展开后按地图边缘切开，每段单独画，不横穿整张图。
+  function routeSplit(hops) {
+    const pts = routeUnwrap(hops.map(h => [h.lon, h.lat]));
+    const segs = [];
+    let cur = [];
+    let prevU = null, prevLat = null;
+    pts.forEach(([u, lat]) => {
+      if (prevU === null) {
+        cur = [[((u % 360) + 360) % 360, lat]];
+        prevU = u; prevLat = lat;
+        return;
+      }
+      const dir = u >= prevU ? 1 : -1;
+      let k = dir > 0 ? Math.floor(prevU / 360) + 1 : Math.ceil(prevU / 360) - 1;
+      while ((dir > 0 && 360 * k < u - 1e-9) || (dir < 0 && 360 * k > u + 1e-9)) {
+        const cutU = 360 * k;
+        const t = (cutU - prevU) / (u - prevU);
+        const latEdge = prevLat + (lat - prevLat) * t;
+        cur.push([dir > 0 ? 360 : 0, latEdge]);
+        segs.push(cur);
+        cur = [[dir > 0 ? 0 : 360, latEdge]];
+        prevU = cutU; prevLat = latEdge;
+        k += dir;
+      }
+      cur.push([((u % 360) + 360) % 360, lat]);
+      prevU = u; prevLat = lat;
+    });
+    if (cur.length) segs.push(cur);
     return segs;
   }
   // Catmull-Rom 平滑曲线，穿过每一个节点。
@@ -264,23 +300,30 @@
     const mapHops = hops.filter(h => h.lat && h.lon);
     let map = '';
     if (typeof LAND !== 'undefined' && mapHops.length >= 2) {
-      let svg = `<path class="route-grat" d="${routeGrat()}"/><path class="route-land" d="${routeLand()}"/>`;
+      let svg = `<clipPath id="route-clip"><rect width="1000" height="500"/></clipPath><path class="route-grat" d="${routeGrat()}"/>${routeLand()}`;
+      mapHops.forEach(h => { h.sx = routeSx(h.lon); });
       routeSplit(mapHops).forEach(seg => {
-        const pts = seg.map(([lon, lat]) => [routePx(lon), routePy(lat)]);
+        const pts = seg.map(([sx, lat]) => [routePx(sx), routePy(lat)]);
         const d = routeSmooth(pts);
         svg += `<path class="route-line" d="${d}"/><path class="route-flow" d="${d}"/>`;
       });
+      const labeled = [];
+      let labelCount = 0;
       mapHops.forEach((h, i) => {
-        const x = routePx(h.lon), y = routePy(h.lat);
+        const x = routePx(h.sx), y = routePy(h.lat);
         const c = routeTCls(h.ms), col = c === 'tg' ? '#2fbf7a' : c === 'to' ? '#e69f00' : '#e5484d';
         const isFirst = i === 0, isLast = i === mapHops.length - 1;
         const fill = isFirst ? '#3569ee' : isLast ? '#15223a' : col;
-        const label = isFirst ? '服务器' : isLast ? '你的位置' : i + ' · ' + h.name;
-        const ly = (i % 2 === 0) ? 26 : -16, dy = y + ly;
-        const anchor = x > 880 ? 'end' : 'start', tx = x > 880 ? x - 12 : x + 12;
         svg += `<circle class="route-hop" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isFirst || isLast ? 8 : 7}" fill="${fill}"><title>${window.esc(h.name)} · ${h.ms.toFixed(1)} ms</title></circle>`;
+        // 挤在一起的点只留一个标签，起点终点必留。
+        if (!isFirst && !isLast && labeled.some(p => Math.hypot(p.x - x, p.y - y) < 20)) return;
+        const label = isFirst ? '服务器' : isLast ? '你的位置' : i + ' · ' + h.name;
+        const ly = (labelCount % 2 === 0) ? 26 : -16, dy = y + ly;
+        const anchor = x > 880 ? 'end' : 'start', tx = x > 880 ? x - 12 : x + 12;
         svg += `<text class="route-lbl" x="${tx.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor}">${window.esc(label)}</text>`;
         svg += `<text class="route-sub" x="${tx.toFixed(1)}" y="${(dy + 13).toFixed(1)}" text-anchor="${anchor}">${h.ms.toFixed(1)} ms</text>`;
+        labeled.push({ x, y });
+        labelCount += 1;
       });
       map = `<div class="mapwrap"><svg viewBox="0 0 1000 500">${svg}</svg></div>`;
     }
