@@ -13,7 +13,7 @@
   let networkFailureCount = 0;
 
   const style = document.createElement('style');
-  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}`;
+  style.textContent = `.network-quality-card{align-self:start;height:max-content;min-height:0;margin-top:18px;padding-bottom:16px}.network-quality-head{display:block}.network-quality-targets{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,max-content));gap:6px;margin-top:14px}.network-quality-target{display:flex;align-items:center;gap:7px;width:max-content;min-width:180px;height:30px;padding:0 9px;border:1px solid var(--line);border-radius:12px;background:#fbfcfe;color:var(--ink);cursor:pointer;font:inherit;text-align:left;box-shadow:none}.network-quality-target.active{border-color:#8db1f5;background:#edf4ff}.network-quality-target.is-hidden{opacity:.48}.network-quality-target .nq-dot{width:7px;height:7px;flex:0 0 7px;border-radius:50%}.network-quality-target .nq-name{max-width:82px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:700}.network-quality-target .nq-value{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}.network-quality-target .nq-loss{color:var(--muted);font-weight:400}.nq-chart{width:100%;height:380px;display:block;background:transparent;border:0;text-rendering:geometricPrecision}.nq-empty{padding:24px;text-align:center;color:var(--muted)}.nq-target-list{display:grid;gap:8px;margin-top:12px}.nq-target-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#f7f9fd}.nq-target-row small{display:block;color:var(--muted);margin-top:2px}.nq-target-row button{padding:6px 9px;border-radius:8px;background:#fff0f1;color:var(--danger);font-size:12px}@media(max-width:800px){.network-quality-targets{grid-template-columns:1fr;gap:5px}.network-quality-target{width:100%;min-width:0;padding:0 9px}.network-quality-target .nq-name{max-width:none;flex:1}.nq-chart{height:280px}}.network-quality-host{display:block!important;align-self:center!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.network-quality-card{display:block!important;width:100%!important;max-width:none!important;box-sizing:border-box;margin:0!important;padding:18px 20px 16px!important;border-radius:22px!important}.network-quality-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}.network-quality-head .sub{margin:0}.nq-chart{height:360px}@media(max-width:800px){.network-quality-host{display:block!important;width:100%!important;max-width:none;margin-top:12px;padding:0}.network-quality-card{padding:12px 10px!important}.network-quality-head{display:block}.network-quality-head .sub{margin-top:2px}.nq-chart{height:280px}}.route-map-host{display:block!important;width:100%!important;max-width:1180px!important;margin:18px auto 0!important;padding:0!important;box-sizing:border-box}.route-map-card{padding:18px 20px 16px}.route-map-card .sub{color:var(--muted);font-size:12px;margin-top:6px}.route-map-card .sub b{color:var(--ink)}.route-map-card .pathline{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px}.route-map-card .pathline b{font-weight:700}.route-map-card .pathline .arr{color:var(--muted)}.route-map-card .pathline .ms{font-weight:700;margin-left:2px}.route-map-card .foot2{display:flex;margin-top:12px;color:var(--muted);font-size:12px}.route-map-card .legend{display:flex;gap:12px;align-items:center}.route-map-card .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}.route-map-card .legend .g{background:#2fbf7a}.route-map-card .legend .o{background:#e69f00}.route-map-card .legend .r{background:#e5484d}.route-map-card .tg{color:#2fbf7a}.route-map-card .to{color:#e69f00}.route-map-card .tr{color:#e5484d}@media(max-width:800px){.route-map-card{padding:16px}}.route-map-card .mapwrap{overflow-x:auto;margin-top:10px;border:1px solid var(--line);border-radius:16px;background:#f7fbff}.route-map-card .mapwrap svg{display:block;min-width:680px;width:100%;height:auto}.route-land{fill:#e6ecf4;stroke:#d7dfeb;stroke-width:.5}.route-grat{stroke:#e2e9f2;stroke-width:.5;fill:none}.route-line{fill:none;stroke:#3569ee;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.route-flow{fill:none;stroke:#fff;stroke-width:2.5;stroke-linecap:round;stroke-dasharray:2 14;animation:route-flow 1.2s linear infinite}@keyframes route-flow{to{stroke-dashoffset:-16}}.route-hop{stroke:#fff;stroke-width:2}.route-lbl{font-size:11px;font-weight:600;fill:#15223a}.route-sub{font-size:10px;fill:#78869a}`;
   document.head.append(style);
 
   function displaySeries(targetID, start, end) {
@@ -180,6 +180,142 @@
     return originalNav().replace('仪表盘</button>', '概览</button>');
   };
 
+
+  // 回程路由：主页打开时探测一次，只显示一串箭头，不画地图。
+  let routeLoaded = false;
+
+  function ensureRouteHost() {
+    const view = document.querySelector('#view');
+    if (!view) return null;
+    let host = document.querySelector('#route-map-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'route-map-host';
+      host.className = 'route-map-host';
+    }
+    if (host.parentNode !== view.parentNode || host.previousElementSibling !== view) {
+      view.insertAdjacentElement('afterend', host);
+    }
+    return host;
+  }
+
+  const ROUTE_W = 1000, ROUTE_H = 500;
+  function routePx(lon) { return (lon + 180) / 360 * ROUTE_W; }
+  function routePy(lat) { return (85 - lat) / 145 * ROUTE_H; }
+  function routeGrat() {
+    let d = '';
+    for (let lon = -180; lon <= 180; lon += 30) d += `M${routePx(lon)},0V${ROUTE_H}`;
+    for (let lat = -60; lat <= 90; lat += 30) d += `M0,${routePy(lat)}H${ROUTE_W}`;
+    return d;
+  }
+  function routeLand() {
+    return LAND.map(poly => {
+      if (poly.length < 3) return '';
+      return 'M' + poly.map(([lon, lat]) => routePx(lon).toFixed(1) + ',' + routePy(lat).toFixed(1)).join('L') + 'Z';
+    }).join('');
+  }
+  // 跨 180° 经线时分段：先画到一侧边缘，再从另一侧边缘进来，不横穿整张图。
+  function routeSplit(hops) {
+    const segs = [];
+    let cur = [[hops[0].lon, hops[0].lat]];
+    for (let i = 1; i < hops.length; i++) {
+      const prev = hops[i - 1], h = hops[i];
+      const dLon = h.lon - prev.lon;
+      if (Math.abs(dLon) > 180) {
+        let edge1, edge2, t;
+        if (dLon > 0) { edge1 = 180; edge2 = -180; t = (180 - prev.lon) / ((180 - prev.lon) + (h.lon + 180)); }
+        else { edge1 = -180; edge2 = 180; t = (prev.lon + 180) / ((prev.lon + 180) + (180 - h.lon)); }
+        const latEdge = prev.lat + (h.lat - prev.lat) * t;
+        cur.push([edge1, latEdge]);
+        segs.push(cur);
+        cur = [[edge2, latEdge], [h.lon, h.lat]];
+      } else {
+        cur.push([h.lon, h.lat]);
+      }
+    }
+    segs.push(cur);
+    return segs;
+  }
+  // Catmull-Rom 平滑曲线，穿过每一个节点。
+  function routeSmooth(pts) {
+    if (pts.length < 2) return '';
+    if (pts.length === 2) return `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}L${pts[1][0].toFixed(1)},${pts[1][1].toFixed(1)}`;
+    let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+      const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      d += `C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    return d;
+  }
+
+  function routeTCls(ms) { return ms < 100 ? 'tg' : ms <= 200 ? 'to' : 'tr'; }
+
+  function renderRouteMap(card, data) {
+    const hops = data.hops || [];
+    if (hops.length < 2) {
+      card.innerHTML = `<div class="section-head"><h2>回程路由</h2></div><div class="sub">未探测到路由数据</div>`;
+      return;
+    }
+    const total = hops[hops.length - 1].ms || 0;
+    const head = `<div class="section-head"><h2>回程路由</h2></div><div class="sub">从服务器到你的位置 · 共 <b>${hops.length - 1} 跳</b> · 往返 <b>${total.toFixed(0)} ms</b></div>`;
+    // 地图只画能定位的跳；少于 2 个点就只显示箭头串。
+    const mapHops = hops.filter(h => h.lat && h.lon);
+    let map = '';
+    if (typeof LAND !== 'undefined' && mapHops.length >= 2) {
+      let svg = `<path class="route-grat" d="${routeGrat()}"/><path class="route-land" d="${routeLand()}"/>`;
+      routeSplit(mapHops).forEach(seg => {
+        const pts = seg.map(([lon, lat]) => [routePx(lon), routePy(lat)]);
+        const d = routeSmooth(pts);
+        svg += `<path class="route-line" d="${d}"/><path class="route-flow" d="${d}"/>`;
+      });
+      mapHops.forEach((h, i) => {
+        const x = routePx(h.lon), y = routePy(h.lat);
+        const c = routeTCls(h.ms), col = c === 'tg' ? '#2fbf7a' : c === 'to' ? '#e69f00' : '#e5484d';
+        const isFirst = i === 0, isLast = i === mapHops.length - 1;
+        const fill = isFirst ? '#3569ee' : isLast ? '#15223a' : col;
+        const label = isFirst ? '服务器' : isLast ? '你的位置' : i + ' · ' + h.name;
+        const ly = (i % 2 === 0) ? 26 : -16, dy = y + ly;
+        const anchor = x > 880 ? 'end' : 'start', tx = x > 880 ? x - 12 : x + 12;
+        svg += `<circle class="route-hop" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${isFirst || isLast ? 8 : 7}" fill="${fill}"><title>${window.esc(h.name)} · ${h.ms.toFixed(1)} ms</title></circle>`;
+        svg += `<text class="route-lbl" x="${tx.toFixed(1)}" y="${dy.toFixed(1)}" text-anchor="${anchor}">${window.esc(label)}</text>`;
+        svg += `<text class="route-sub" x="${tx.toFixed(1)}" y="${(dy + 13).toFixed(1)}" text-anchor="${anchor}">${h.ms.toFixed(1)} ms</text>`;
+      });
+      map = `<div class="mapwrap"><svg viewBox="0 0 1000 500">${svg}</svg></div>`;
+    }
+    const chain = hops.map((hop, i) => {
+      const name = `<b>${window.esc(hop.name)}</b>`;
+      const ms = i === 0 ? '' : ` <span class="ms ${routeTCls(hop.ms)}">${hop.ms.toFixed(1)} ms</span>`;
+      return `<span>${name}${ms}</span>`;
+    }).join('<span class="arr">→</span>');
+    card.innerHTML = head + map
+      + `<div class="pathline">${chain}</div>`
+      + `<div class="foot2"><div class="legend"><span><i class="g"></i>&lt;100ms</span><span><i class="o"></i>100–200ms</span><span><i class="r"></i>&gt;200ms</span></div></div>`;
+  }
+
+  async function loadRouteMap() {
+    if (routeLoaded) return;
+    const host = ensureRouteHost();
+    if (!host) return;
+    routeLoaded = true;
+    let card = host.querySelector('.route-map-card');
+    if (!card) {
+      card = document.createElement('section');
+      card.className = 'card section route-map-card';
+      host.append(card);
+    }
+    card.innerHTML = `<div class="section-head"><h2>回程路由</h2></div><div class="sub">正在探测路由…</div>`;
+    try {
+      const response = await fetch('/api/route', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || ('探测失败：' + response.status));
+      renderRouteMap(card, data);
+    } catch (error) {
+      card.innerHTML = `<div class="section-head"><h2>回程路由</h2></div><div class="sub">${window.esc(error.message)}</div>`;
+    }
+  }
+
   window.viewDashboard = function overviewDashboard() {
     originalDashboard();
     document.querySelectorAll('[aria-label="返回仪表盘"]').forEach(element => element.setAttribute('aria-label', '返回概览'));
@@ -188,6 +324,7 @@
     if (!host) return;
     renderNetwork(host);
     loadNetwork();
+    loadRouteMap();
   };
 
   function renderSettingsTargets() {
@@ -233,6 +370,7 @@
   // Start the data request early; viewDashboard will mount the result when the
   // initial dashboard render completes.
   loadNetwork();
+  loadRouteMap();
   setInterval(() => {
     if (document.querySelector('#view .dashboard-grid')) loadNetwork();
   }, networkRefreshInterval);
