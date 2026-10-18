@@ -109,7 +109,7 @@
 
   function renderNetwork(dashboard) {
     let card = dashboard.querySelector('.network-quality-card');
-    if (!card) { card = document.createElement('section'); card.className = 'card section network-quality-card enter'; dashboard.append(card); }
+    if (!card) { card = document.createElement('section'); card.className = 'card section network-quality-card'; dashboard.append(card); }
     const targets = pingData.targets.map((target, index) => {
       const summary = pingData.summary24h?.[target.id];
       const hasSummary = summary && summary.checks > 0;
@@ -183,7 +183,6 @@
 
   // 回程路由：主页打开时探测一次，只显示一串箭头，不画地图。
   let routeLoaded = false;
-  let routeDrawn = false;
 
   function ensureRouteHost() {
     const view = document.querySelector('#view');
@@ -361,7 +360,7 @@
     let card = host.querySelector('.route-map-card');
     if (!card) {
       card = document.createElement('section');
-      card.className = 'card section route-map-card enter';
+      card.className = 'card section route-map-card';
       host.append(card);
     }
     card.innerHTML = `<div class="section-head"><h2>回程路由</h2></div><div class="sub">正在探测路由…</div>`;
@@ -370,23 +369,6 @@
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || ('探测失败：' + response.status));
       renderRouteMap(card, data);
-      if (!routeDrawn) {
-        routeDrawn = true;
-        requestAnimationFrame(() => {
-          const flows = card.querySelectorAll('.route-flow');
-          flows.forEach(f => { f.style.opacity = '0'; });
-          card.querySelectorAll('.route-line').forEach(p => {
-            try {
-              const len = p.getTotalLength();
-              p.style.strokeDasharray = len;
-              p.style.strokeDashoffset = len;
-              p.style.transition = 'stroke-dashoffset 1.1s ease-out';
-              requestAnimationFrame(() => { p.style.strokeDashoffset = '0'; });
-            } catch (e) {}
-          });
-          setTimeout(() => { flows.forEach(f => { f.style.transition = 'opacity .3s ease'; f.style.opacity = '1'; }); }, 1050);
-        });
-      }
     } catch (error) {
       card.innerHTML = `<div class="section-head"><h2>回程路由</h2></div><div class="sub">${window.esc(error.message)}</div>`;
     }
