@@ -186,3 +186,29 @@ func TestTrafficSyncMakesOverLimitClientInactive(t *testing.T) {
 		t.Fatalf("expected client to be over limit and inactive: %#v", client)
 	}
 }
+
+func TestDailyTrafficByUserCoversMonthDays(t *testing.T) {
+	cases := []struct {
+		now  string
+		want int
+	}{
+		{"2026-10-23T12:00:00Z", 31},
+		{"2026-02-15T12:00:00Z", 28},
+		{"2024-02-15T12:00:00Z", 29},
+		{"2026-04-15T12:00:00Z", 30},
+	}
+	for _, c := range cases {
+		now, err := time.Parse(time.RFC3339, c.now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := dailyTrafficByUser(config.State{}, now)
+		if len(rows) != c.want {
+			t.Fatalf("%s: got %d rows, want %d", c.now, len(rows), c.want)
+		}
+		last := now.In(config.PanelLocation).Format("2006-01-02")
+		if rows[len(rows)-1]["date"] != last {
+			t.Fatalf("%s: last row date = %v, want %s", c.now, rows[len(rows)-1]["date"], last)
+		}
+	}
+}
