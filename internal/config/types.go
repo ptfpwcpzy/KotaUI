@@ -49,10 +49,8 @@ type State struct {
 }
 
 type DailyUsage struct {
-	Date     string `json:"date"`
-	Bytes    int64  `json:"bytes"`
-	Upload   int64  `json:"upload,omitempty"`
-	Download int64  `json:"download,omitempty"`
+	Date  string `json:"date"`
+	Bytes int64  `json:"bytes"`
 }
 
 type TrafficCounters struct {
@@ -123,8 +121,6 @@ type Client struct {
 	Month                string            `json:"month"`
 	DailyLimitBytes      int64             `json:"dailyLimitBytes"`
 	DailyUsedBytes       int64             `json:"dailyUsedBytes"`
-	DailyUploadBytes     int64             `json:"dailyUploadBytes,omitempty"`
-	DailyDownloadBytes   int64             `json:"dailyDownloadBytes,omitempty"`
 	DailyDate            string            `json:"dailyDate,omitempty"`
 	DailyHistory         []DailyUsage      `json:"dailyHistory,omitempty"`
 	ExpiresAt            string            `json:"expiresAt,omitempty"`
