@@ -1290,18 +1290,18 @@ func dailyTrafficByUser(s config.State, now time.Time) []map[string]any {
 		day := base.AddDate(0, 0, -i).Format("2006-01-02")
 		users := make([]map[string]any, 0, len(clients))
 		for _, client := range clients {
-			var b int64
+			var b, up, down int64
 			if day == client.DailyDate {
-				b = client.DailyUsedBytes
+				b, up, down = client.DailyUsedBytes, client.DailyUploadBytes, client.DailyDownloadBytes
 			} else {
 				for _, h := range client.DailyHistory {
 					if h.Date == day {
-						b = h.Bytes
+						b, up, down = h.Bytes, h.Upload, h.Download
 						break
 					}
 				}
 			}
-			users = append(users, map[string]any{"username": client.Username, "bytes": b})
+			users = append(users, map[string]any{"username": client.Username, "bytes": b, "upload": up, "download": down})
 		}
 		out = append(out, map[string]any{"date": day, "users": users})
 	}
