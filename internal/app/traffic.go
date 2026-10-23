@@ -157,8 +157,8 @@ func (a *App) syncTraffic() {
 			if client.DailyDate != today {
 				if client.DailyDate != "" {
 					client.DailyHistory = append(client.DailyHistory, config.DailyUsage{Date: client.DailyDate, Bytes: client.DailyUsedBytes})
-					if len(client.DailyHistory) > 15 {
-						client.DailyHistory = client.DailyHistory[len(client.DailyHistory)-15:]
+					if len(client.DailyHistory) > 31 {
+						client.DailyHistory = client.DailyHistory[len(client.DailyHistory)-31:]
 					}
 				}
 				client.DailyDate = today
