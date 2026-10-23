@@ -1,0 +1,79 @@
+#!/bin/sh
+# KotaUI 自动更新检查：先比对仓库最新提交与本地已安装提交，
+# 一致就直接结束；不一致（或本地还没有提交记录）才走现有更新流程。
+# 每天跑一次：systemd 侧挂在 kota-cert-renew 的每日定时服务后面执行，OpenRC 侧放 /etc/periodic/daily。
+# 在 runtime.env 里写 KOTAUI_AUTO_UPDATE=0 可关闭自动更新。
+set -u
+
+DATA_DIR="${KOTAUI_DATA_DIR:-/var/lib/kotaui}"
+KOTA_BIN="${KOTAUI_KOTA_BIN:-/usr/local/bin/kota}"
+UPDATE_RUN="${KOTAUI_UPDATE_RUN:-/usr/local/lib/kotaui/kotaui-update-run}"
+REPO_URL="${KOTAUI_REPO_URL:-https://github.com/ptfpwcpzy/KotaUI.git}"
+COMMIT_FILE="$DATA_DIR/installed.commit"
+LOG_FILE="$DATA_DIR/autoupdate.log"
+RUNTIME_ENV="$DATA_DIR/runtime.env"
+
+log() { printf '[%s] %s\n' "$(date -Iseconds)" "$1" >> "$LOG_FILE"; }
+
+# 日志只追加不清理会越长越大：超过 1MB 的只保留最后 256KB（每天检查时顺手做）
+trim_log() {
+  f="$DATA_DIR/$1"
+  [ -f "$f" ] || return 0
+  size=$(wc -c < "$f" 2>/dev/null || echo 0)
+  if [ "$size" -gt 1048576 ]; then
+    if tail -c 262144 "$f" > "$f.trim.$$" 2>/dev/null; then mv -f "$f.trim.$$" "$f"; chmod 600 "$f" 2>/dev/null || true; else rm -f "$f.trim.$$"; fi
+  fi
+}
+
+mkdir -p "$DATA_DIR"
+
+trim_log autoupdate.log
+trim_log update.log
+trim_log cert-renew.log
+
+# 读取 runtime.env 里的开关（与 kota 相同的配置来源）
+if [ -r "$RUNTIME_ENV" ]; then
+  KOTAUI_AUTO_UPDATE_FILE=$(grep -E '^KOTAUI_AUTO_UPDATE=' "$RUNTIME_ENV" | tail -n 1 | cut -d= -f2- | tr -d "\"'")
+  KOTAUI_AUTO_UPDATE="${KOTAUI_AUTO_UPDATE:-$KOTAUI_AUTO_UPDATE_FILE}"
+fi
+if [ "${KOTAUI_AUTO_UPDATE:-1}" = "0" ]; then
+  log '自动更新已关闭（KOTAUI_AUTO_UPDATE=0），跳过本次检查。'
+  exit 0
+fi
+
+# 与手动更新共用一把锁，避免两边同时跑
+if command -v flock >/dev/null 2>&1 && exec 9>"$DATA_DIR/update.lock" 2>/dev/null; then
+  if ! flock -n 9 2>/dev/null; then
+    log '已有更新任务在运行，跳过本次检查。'
+    exit 0
+  fi
+fi
+
+remote=$(git ls-remote "$REPO_URL" HEAD 2>/dev/null | awk 'NR==1{print $1}')
+if [ -z "$remote" ]; then
+  log '无法获取仓库最新提交（网络或仓库不可达），跳过本次检查。'
+  exit 0
+fi
+
+installed=''
+[ -r "$COMMIT_FILE" ] && installed=$(tr -d '[:space:]' < "$COMMIT_FILE")
+if [ -n "$installed" ] && [ "$installed" = "$remote" ]; then
+  log "已是最新提交 $remote，无需更新。"
+  exit 0
+fi
+
+log "发现新提交：已安装 ${installed:-（无记录）}，仓库最新 $remote，开始自动更新。"
+if [ -x "$UPDATE_RUN" ]; then
+  # 走独立更新服务脚本：进度会写进面板的更新状态和更新日志
+  KOTAUI_DATA_DIR="$DATA_DIR" KOTAUI_KOTA_BIN="$KOTA_BIN" "$UPDATE_RUN" >> "$LOG_FILE" 2>&1
+  rc=$?
+else
+  "$KOTA_BIN" update --yes >> "$LOG_FILE" 2>&1
+  rc=$?
+fi
+if [ "$rc" -eq 0 ]; then
+  log '自动更新完成。'
+else
+  log "自动更新失败（退出码 $rc），下次检查时重试。"
+fi
+exit 0

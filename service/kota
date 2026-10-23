@@ -243,6 +243,7 @@ do_update(){
   prepare_go_cache
   source=$(mktemp -d /var/tmp/kotaui-build/src.XXXXXX)
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; update_status failed '下载更新失败，请检查网络或更新日志。'; printf '下载更新失败。\n' >&2; return 1; fi
+  new_commit=$(git -C "$source" rev-parse HEAD 2>/dev/null || true)
   if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在构建兼容 sing-box 核心…'
   if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
@@ -257,6 +258,7 @@ do_update(){
   install -m 755 "$source/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   install -m 755 "$source/service/kota" "$BIN_DIR/kota"
   install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+  install -m 755 "$source/service/kota-autoupdate" "$BIN_DIR/kota-autoupdate"
   install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
   install -m 755 "$source/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
   sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
@@ -278,8 +280,10 @@ do_update(){
     install -d -m 755 /etc/conf.d
     printf 'KOTAUI_RUNTIME_ENV="%s/runtime.env"\n' "$DATA_DIR" > /etc/conf.d/kotaui
     install -m 755 "$source/service/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew
+    install -m 755 "$source/service/kota-autoupdate" /etc/periodic/daily/kota-autoupdate
     rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
   fi
+  if [ -n "${new_commit:-}" ]; then printf '%s\n' "$new_commit" > "$DATA_DIR/installed.commit"; fi
   rm -rf "$source"
   update_status success '更新完成，面板与核心已恢复。'
   printf 'KotaUI 已更新，配置、用户数据和证书保持不变。\n'
@@ -313,11 +317,11 @@ EOF
   else
     rc-update del kotaui default >/dev/null 2>&1 || true
     rc-update del kotaui-singbox default >/dev/null 2>&1 || true
-    rm -f /etc/init.d/kotaui /etc/init.d/kotaui-singbox /etc/conf.d/kotaui /etc/periodic/6hourly/kota-cert-renew
+    rm -f /etc/init.d/kotaui /etc/init.d/kotaui-singbox /etc/conf.d/kotaui /etc/periodic/6hourly/kota-cert-renew /etc/periodic/daily/kota-autoupdate
   fi
   remove_kotaui_certificate
   rm -rf "$PREFIX" "$DATA_DIR"
-  rm -f "$BIN_DIR/kota" "$BIN_DIR/kota-cert-renew"
+  rm -f "$BIN_DIR/kota" "$BIN_DIR/kota-cert-renew" "$BIN_DIR/kota-autoupdate"
   printf 'KotaUI 已卸载完成。\n'
 }
 

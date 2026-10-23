@@ -379,6 +379,7 @@ install_program(){
   install -m 755 "$SOURCE_DIR/service/kotaui-update-run" /usr/local/lib/kotaui/kotaui-update-run
   install -m 755 "$SOURCE_DIR/service/kota" "$BIN_DIR/kota"
 	install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
+	install -m 755 "$SOURCE_DIR/service/kota-autoupdate" "$BIN_DIR/kota-autoupdate"
 	install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
 	install -m 755 "$SOURCE_DIR/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
   sub_ok "管理脚本已安装。"
@@ -405,6 +406,7 @@ KOTAUI_SINGBOX_CONFIG=$DATA_DIR/sing-box/config.json
 KOTAUI_MANAGE_SINGBOX=1
 KOTAUI_STATS_PORT=9090
 EOF
+  git -C "$SOURCE_DIR" rev-parse HEAD > "$DATA_DIR/installed.commit" 2>/dev/null || true
   chmod 600 "$DATA_DIR/runtime.env"
   sub_ok "面板配置已生成。"
 }
@@ -412,11 +414,12 @@ EOF
 _install_services(){
   . /etc/os-release 2>/dev/null || true
   if [ "${ID:-}" = alpine ]; then
-    install -d -m 755 /etc/init.d /etc/conf.d /etc/periodic/6hourly
+    install -d -m 755 /etc/init.d /etc/conf.d /etc/periodic/6hourly /etc/periodic/daily
 	install -m 755 "$SOURCE_DIR/service/kotaui.openrc" /etc/init.d/kotaui
 	install -m 755 "$SOURCE_DIR/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
     printf 'KOTAUI_RUNTIME_ENV="%s/runtime.env"\n' "$DATA_DIR" > /etc/conf.d/kotaui
     cp "$BIN_DIR/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew; chmod 700 /etc/periodic/6hourly/kota-cert-renew
+    cp "$BIN_DIR/kota-autoupdate" /etc/periodic/daily/kota-autoupdate; chmod 700 /etc/periodic/daily/kota-autoupdate
     rc-update add kotaui default >/dev/null 2>&1 || true; rc-update add kotaui-singbox default >/dev/null 2>&1 || true; rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
   else
     install -m 644 "$SOURCE_DIR/service/kotaui.service" /etc/systemd/system/kotaui.service

@@ -1,6 +1,10 @@
 [Unit]
-Description=Renew KotaUI TLS certificate
+Description=Renew KotaUI TLS certificate and check for updates
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/kota-cert-renew
+TimeoutStartSec=30min
+ExecStart=-/usr/local/bin/kota-cert-renew
+ExecStart=-/usr/local/bin/kota-autoupdate
