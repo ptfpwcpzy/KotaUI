@@ -156,15 +156,13 @@ func (a *App) syncTraffic() {
 			}
 			if client.DailyDate != today {
 				if client.DailyDate != "" {
-					client.DailyHistory = append(client.DailyHistory, config.DailyUsage{Date: client.DailyDate, Bytes: client.DailyUsedBytes, Upload: client.DailyUploadBytes, Download: client.DailyDownloadBytes})
+					client.DailyHistory = append(client.DailyHistory, config.DailyUsage{Date: client.DailyDate, Bytes: client.DailyUsedBytes})
 					if len(client.DailyHistory) > 15 {
 						client.DailyHistory = client.DailyHistory[len(client.DailyHistory)-15:]
 					}
 				}
 				client.DailyDate = today
 				client.DailyUsedBytes = 0
-				client.DailyUploadBytes = 0
-				client.DailyDownloadBytes = 0
 			}
 			now := current[client.Username]
 			before := next.TrafficCounters[client.Username]
@@ -177,8 +175,6 @@ func (a *App) syncTraffic() {
 				client.MonthlyUsedBytes += delta
 				client.MonthlyDownloadBytes += download
 				client.DailyUsedBytes += delta
-				client.DailyUploadBytes += upload
-				client.DailyDownloadBytes += download
 				client.LastActiveAt = nowTime.UTC()
 			}
 			next.TrafficCounters[client.Username] = now
