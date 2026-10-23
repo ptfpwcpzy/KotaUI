@@ -1284,9 +1284,11 @@ func lastSevenDays(s config.State, now time.Time) []map[string]any {
 func dailyTrafficByUser(s config.State, now time.Time) []map[string]any {
 	// 保持客户端列表顺序：图例按此顺序排列，堆叠柱自下而上也是此顺序
 	clients := s.Clients
-	out := make([]map[string]any, 0, 15)
+	out := make([]map[string]any, 0, 31)
 	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
-	for i := 14; i >= 0; i-- {
+	// 显示最近一个月：天数按当月天数取 28–31 天
+	days := time.Date(base.Year(), base.Month()+1, 0, 0, 0, 0, 0, config.PanelLocation).Day()
+	for i := days - 1; i >= 0; i-- {
 		day := base.AddDate(0, 0, -i).Format("2006-01-02")
 		users := make([]map[string]any, 0, len(clients))
 		for _, client := range clients {
