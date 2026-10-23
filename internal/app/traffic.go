@@ -105,6 +105,9 @@ func trafficDelta(current, previous int64) int64 {
 	return current - previous
 }
 
+// trafficSaveInterval batches state.json writes for pure traffic counter growth.
+const trafficSaveInterval = time.Minute
+
 func (a *App) syncTraffic() {
 	a.trafficMu.Lock()
 	defer a.trafficMu.Unlock()
@@ -141,8 +144,40 @@ func (a *App) syncTraffic() {
 	if !needsSave {
 		return
 	}
+	// Structural changes (month/day rollover, clients added or removed) persist
+	// immediately; plain counter growth is batched and flushed at most once a
+	// minute, so state.json is not rewritten on every 15s sync while traffic flows.
+	structural := len(state.TrafficCounters) != len(state.Clients)
+	if !structural {
+		for _, client := range state.Clients {
+			if client.Month != month || client.DailyDate != today {
+				structural = true
+				break
+			}
+		}
+	}
+	if !structural {
+		for username := range state.TrafficCounters {
+			found := false
+			for _, client := range state.Clients {
+				if client.Username == username {
+					found = true
+					break
+				}
+			}
+			if !found {
+				structural = true
+				break
+			}
+		}
+	}
+	persist := structural || nowTime.Sub(a.lastTrafficSave) >= trafficSaveInterval
+	update := a.store.Update
+	if !persist {
+		update = a.store.UpdateNoSave
+	}
 	reloadCore := false
-	if err := a.store.Update(func(next *config.State) error {
+	if err := update(func(next *config.State) error {
 		if next.TrafficCounters == nil {
 			next.TrafficCounters = map[string]config.TrafficCounters{}
 		}
@@ -197,6 +232,9 @@ func (a *App) syncTraffic() {
 		return nil
 	}); err != nil {
 		return
+	}
+	if persist {
+		a.lastTrafficSave = nowTime
 	}
 	if reloadCore {
 		a.mu.Lock()

@@ -43,6 +43,7 @@ type App struct {
 	coreReloadMu        sync.Mutex
 	trafficMu           sync.Mutex
 	lastTrafficSync     time.Time
+	lastTrafficSave     time.Time
 	trafficSyncInterval time.Duration
 	updateMu            sync.Mutex
 	updateRunning       bool
@@ -424,7 +425,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"services":            services,
 		"healthHints":         dashboardHints(s, certificate, services),
 		"dailyTraffic":        lastSevenDays(s, time.Now()),
-		"dailyTrafficByUser": dailyTrafficByUser(s, time.Now()),
+		"dailyTrafficByUser":  dailyTrafficByUser(s, time.Now()),
 	})
 }
 

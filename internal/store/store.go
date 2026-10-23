@@ -83,6 +83,26 @@ func (s *Store) UpdateWith(fn func(*config.State) error, apply func(config.State
 	return nil
 }
 
+// UpdateNoSave applies fn to the in-memory state without writing state.json.
+// Callers that batch frequent small mutations use it and flush with Persist.
+func (s *Store) UpdateNoSave(fn func(*config.State) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	candidate := clone(s.data)
+	if err := fn(&candidate); err != nil {
+		return err
+	}
+	s.data = candidate
+	return nil
+}
+
+// Persist writes the current in-memory state to state.json.
+func (s *Store) Persist() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.save(s.data)
+}
+
 func (s *Store) saveLocked() error {
 	return s.save(s.data)
 }
