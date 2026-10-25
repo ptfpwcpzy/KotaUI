@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -170,7 +172,6 @@ func TestWriteRelayLandingAddsSocksInbound(t *testing.T) {
 			Type       string `json:"type"`
 			Tag        string `json:"tag"`
 			ListenPort int    `json:"listen_port"`
-			Version    string `json:"version"`
 			Users      []struct {
 				Username string `json:"username"`
 				Password string `json:"password"`
@@ -180,7 +181,7 @@ func TestWriteRelayLandingAddsSocksInbound(t *testing.T) {
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0].Type != "socks" || decoded.Inbounds[0].Tag != "relay-in" || decoded.Inbounds[0].ListenPort != 41234 || decoded.Inbounds[0].Version != "5" || len(decoded.Inbounds[0].Users) != 1 || decoded.Inbounds[0].Users[0].Username != "relay-abc" || decoded.Inbounds[0].Users[0].Password != "secret" {
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0].Type != "socks" || decoded.Inbounds[0].Tag != "relay-in" || decoded.Inbounds[0].ListenPort != 41234 || len(decoded.Inbounds[0].Users) != 1 || decoded.Inbounds[0].Users[0].Username != "relay-abc" || decoded.Inbounds[0].Users[0].Password != "secret" {
 		t.Fatalf("unexpected relay inbound: %#v", decoded.Inbounds)
 	}
 }
@@ -350,6 +351,56 @@ func TestWriteRelayLandingUserCountedInStats(t *testing.T) {
 	}
 	if len(decoded.Experimental.V2RayAPI.Stats.Users) != 1 || decoded.Experimental.V2RayAPI.Stats.Users[0] != "relay-abc" {
 		t.Fatalf("unexpected stats users: %#v", decoded.Experimental.V2RayAPI.Stats.Users)
+	}
+}
+
+func TestWriteRelayLandingInboundHasNoVersionField(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "landing", Port: 41234, Username: "relay-abc", Password: "secret"}
+	runtime := config.Runtime{DataDir: directory, SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Inbounds []map[string]any `json:"inbounds"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, inbound := range decoded.Inbounds {
+		if inbound["tag"] == "relay-in" {
+			if _, ok := inbound["version"]; ok {
+				t.Fatalf("socks 入站不能带 version 字段，否则 sing-box 校验失败：%v", inbound)
+			}
+			return
+		}
+	}
+	t.Fatal("generated config has no relay-in inbound")
+}
+
+func TestWriteLandingConfigPassesSingBoxCheck(t *testing.T) {
+	binary := os.Getenv("KOTAUI_SINGBOX_STATS_BIN")
+	if binary == "" {
+		t.Skip("set KOTAUI_SINGBOX_STATS_BIN to run against a compatible sing-box core")
+	}
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "landing", Port: 41234, Username: "relay-abc", Password: "secret"}
+	runtime := config.Runtime{DataDir: directory, SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(binary, "check", "-c", runtime.SingBoxConfig)
+	var logs bytes.Buffer
+	command.Stdout = &logs
+	command.Stderr = &logs
+	if err := command.Run(); err != nil {
+		t.Fatalf("sing-box check failed on landing config: %v; output: %s", err, logs.String())
 	}
 }
 

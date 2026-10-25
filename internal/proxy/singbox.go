@@ -79,7 +79,9 @@ func Write(state config.State, runtime config.Runtime) error {
 	}
 	sort.Strings(statsUsers)
 	if relay.Enabled && relay.Role == "landing" {
-		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": "relay-in", "listen": "0.0.0.0", "listen_port": relay.Port, "version": "5", "users": []map[string]any{{"username": relay.Username, "password": relay.Password}}})
+		// 注意：sing-box 的 socks 入站没有 version 字段（写了会校验失败），
+		// socks 出站才有 version 字段，不要把两者混淆。
+		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": "relay-in", "listen": "0.0.0.0", "listen_port": relay.Port, "users": []map[string]any{{"username": relay.Username, "password": relay.Password}}})
 	}
 	directOutbound := map[string]any{"type": "direct", "tag": "direct"}
 	if strategy := state.Settings.OutboundStrategy; strategy != "" && strategy != "auto" {
