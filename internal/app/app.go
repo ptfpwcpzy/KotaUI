@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -900,13 +902,22 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		incoming.BlockedDomains = domains
 	}
+	if incoming.Relay != nil {
+		relay, err := a.normalizeRelay(*incoming.Relay)
+		if err != nil {
+			badRequest(w, err)
+			return
+		}
+		incoming.Relay = &relay
+	}
 	current := a.store.Snapshot().Settings
 	dashboardChanged := dashboardSettingsChanged(current, incoming)
 	outboundChanged := incoming.OutboundStrategy != "" && incoming.OutboundStrategy != current.OutboundStrategy
 	candidatesChanged := incoming.RealityCandidates != nil && !reflect.DeepEqual(incoming.RealityCandidates, current.RealityCandidates)
 	blockedDomainsChanged := incoming.BlockedDomains != nil && !reflect.DeepEqual(incoming.BlockedDomains, current.BlockedDomains)
 	blockBitTorrentChanged := incoming.BlockBitTorrent != nil && *incoming.BlockBitTorrent != current.BlockBitTorrent
-	requiresCoreApply := outboundChanged || blockedDomainsChanged || blockBitTorrentChanged
+	relayChanged := incoming.Relay != nil && !reflect.DeepEqual(*incoming.Relay, current.Relay)
+	requiresCoreApply := outboundChanged || blockedDomainsChanged || blockBitTorrentChanged || relayChanged
 	if !requiresCoreApply {
 		if !candidatesChanged && !dashboardChanged {
 			writeJSON(w, http.StatusOK, map[string]any{"settings": current, "applied": true, "message": "设置没有变化，当前配置已生效。"})
@@ -949,6 +960,9 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		if incoming.BlockBitTorrent != nil {
 			s.Settings.BlockBitTorrent = *incoming.BlockBitTorrent
 		}
+		if incoming.Relay != nil {
+			s.Settings.Relay = *incoming.Relay
+		}
 		applyDashboardSettings(&s.Settings, incoming)
 		return nil
 	})
@@ -978,6 +992,7 @@ type settingsUpdateRequest struct {
 	MonthlyQuotaGB    *int                      `json:"monthlyQuotaGB"`
 	BandwidthMbps     *int                      `json:"bandwidthMbps"`
 	TrafficDirection  *string                   `json:"trafficDirection"`
+	Relay             *config.RelaySettings     `json:"relay"`
 }
 
 func dashboardQuota(v int) int {
@@ -1080,6 +1095,96 @@ func normalizeOutboundStrategy(value string) (string, error) {
 	default:
 		return "", errors.New("出站网络策略无效")
 	}
+}
+
+// normalizeRelay 校验中转配置：关闭时直接清空；落地机首次开启时随机生成端口和账号并固定下来。
+func (a *App) normalizeRelay(incoming config.RelaySettings) (config.RelaySettings, error) {
+	if !incoming.Enabled {
+		return config.RelaySettings{}, nil
+	}
+	relay := incoming
+	relay.Host = strings.TrimSpace(relay.Host)
+	relay.Username = strings.TrimSpace(relay.Username)
+	relay.Password = strings.TrimSpace(relay.Password)
+	switch relay.Role {
+	case "":
+		relay.Role = "transit"
+	case "transit", "landing":
+	default:
+		return config.RelaySettings{}, errors.New("中转角色无效")
+	}
+	switch relay.Mode {
+	case "":
+		relay.Mode = "all"
+	case "all", "categories":
+	default:
+		return config.RelaySettings{}, errors.New("中转流量模式无效")
+	}
+	categories := make([]string, 0, len(relay.Categories))
+	for _, id := range relay.Categories {
+		if proxy.RelayCategoryKnown(id) {
+			categories = append(categories, id)
+		}
+	}
+	relay.Categories = categories
+	if relay.Role == "transit" {
+		if relay.Host == "" {
+			return config.RelaySettings{}, errors.New("中转机需要填写落地机地址")
+		}
+		if relay.Port < 1 || relay.Port > 65535 {
+			return config.RelaySettings{}, errors.New("中转端口无效")
+		}
+		return relay, nil
+	}
+	snapshot := a.store.Snapshot()
+	previous := snapshot.Settings.Relay
+	used := map[int]bool{}
+	for _, inbound := range snapshot.Inbounds {
+		used[inbound.Port] = true
+	}
+	if _, port, err := net.SplitHostPort(a.runtime.Listen); err == nil {
+		if value, err := strconv.Atoi(port); err == nil {
+			used[value] = true
+		}
+	}
+	if !previous.Enabled || previous.Role != "landing" {
+		port, err := randomRelayPort(used)
+		if err != nil {
+			return config.RelaySettings{}, err
+		}
+		relay.Port = port
+		relay.Username = "relay-" + config.RandomLetters(6)
+		relay.Password = config.RandomHex(7)
+		return relay, nil
+	}
+	if relay.Port < 1 || relay.Port > 65535 {
+		port, err := randomRelayPort(used)
+		if err != nil {
+			return config.RelaySettings{}, err
+		}
+		relay.Port = port
+	}
+	if relay.Username == "" {
+		relay.Username = "relay-" + config.RandomLetters(6)
+	}
+	if relay.Password == "" {
+		relay.Password = config.RandomHex(7)
+	}
+	return relay, nil
+}
+
+func randomRelayPort(used map[int]bool) (int, error) {
+	for range 100 {
+		value, err := rand.Int(rand.Reader, big.NewInt(55536))
+		if err != nil {
+			return 0, errors.New("无法生成中转端口")
+		}
+		port := 10000 + int(value.Int64())
+		if !used[port] {
+			return port, nil
+		}
+	}
+	return 0, errors.New("无法生成中转端口")
 }
 
 func (a *App) subscription(w http.ResponseWriter, r *http.Request) {

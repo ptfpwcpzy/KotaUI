@@ -153,6 +153,110 @@ func TestWriteAppliesOutboundAddressStrategy(t *testing.T) {
 	}
 }
 
+func TestWriteRelayLandingAddsSocksInbound(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "landing", Port: 41234, Username: "relay-abc", Password: "secret"}
+	runtime := config.Runtime{SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Inbounds []struct {
+			Type       string `json:"type"`
+			Tag        string `json:"tag"`
+			ListenPort int    `json:"listen_port"`
+			Version    string `json:"version"`
+			Users      []struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			} `json:"users"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0].Type != "socks" || decoded.Inbounds[0].Tag != "relay-in" || decoded.Inbounds[0].ListenPort != 41234 || decoded.Inbounds[0].Version != "5" || len(decoded.Inbounds[0].Users) != 1 || decoded.Inbounds[0].Users[0].Username != "relay-abc" || decoded.Inbounds[0].Users[0].Password != "secret" {
+		t.Fatalf("unexpected relay inbound: %#v", decoded.Inbounds)
+	}
+}
+
+func TestWriteRelayTransitAllRoutesEverything(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "transit", Host: "203.0.113.10", Port: 41234, Username: "relay-abc", Password: "secret", Mode: "all"}
+	runtime := config.Runtime{SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Outbounds []struct {
+			Type       string `json:"type"`
+			Tag        string `json:"tag"`
+			Server     string `json:"server"`
+			ServerPort int    `json:"server_port"`
+		} `json:"outbounds"`
+		Route struct {
+			Final string `json:"final"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Outbounds) != 2 || decoded.Outbounds[0].Type != "socks" || decoded.Outbounds[0].Tag != "relay" || decoded.Outbounds[0].Server != "203.0.113.10" || decoded.Outbounds[0].ServerPort != 41234 || decoded.Outbounds[1].Tag != "direct" || decoded.Route.Final != "relay" {
+		t.Fatalf("unexpected relay-all config: %#v %#v", decoded.Outbounds, decoded.Route)
+	}
+}
+
+func TestWriteRelayTransitCategoriesRoutesOnlySelected(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "transit", Host: "203.0.113.10", Port: 41234, Mode: "categories", Categories: []string{"netflix", "bogus", "youtube"}}
+	runtime := config.Runtime{SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Outbounds []struct {
+			Tag string `json:"tag"`
+		} `json:"outbounds"`
+		Route struct {
+			Final string           `json:"final"`
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Outbounds) != 2 || decoded.Outbounds[0].Tag != "direct" || decoded.Outbounds[1].Tag != "relay" || decoded.Route.Final != "direct" {
+		t.Fatalf("unexpected relay-categories outbounds: %#v %#v", decoded.Outbounds, decoded.Route)
+	}
+	relayed := []string{}
+	for _, rule := range decoded.Route.Rules {
+		if rule["outbound"] == "relay" {
+			domains, _ := rule["domain_suffix"].([]any)
+			for _, domain := range domains {
+				relayed = append(relayed, domain.(string))
+			}
+		}
+	}
+	if len(relayed) != 7 || relayed[0] != "netflix.com" || relayed[4] != "youtube.com" {
+		t.Fatalf("unexpected relayed domains: %#v", relayed)
+	}
+}
+
 func TestWriteAddsDomainAndBitTorrentBlockRules(t *testing.T) {
 	directory := t.TempDir()
 	state := config.DefaultState("example.test")

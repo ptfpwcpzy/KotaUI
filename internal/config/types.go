@@ -69,6 +69,20 @@ type Settings struct {
 	MonthlyQuotaGB    int                `json:"monthlyQuotaGB,omitempty"`
 	BandwidthMbps     int                `json:"bandwidthMbps,omitempty"`
 	TrafficDirection  string             `json:"trafficDirection,omitempty"`
+	Relay             RelaySettings      `json:"relay"`
+}
+
+// RelaySettings 是中转功能的配置：中转机用它连向落地机，落地机用它接中转机。
+// 角色为 landing 时，Port/Username/Password 由面板首次开启时随机生成并固定下来。
+type RelaySettings struct {
+	Enabled    bool     `json:"enabled"`
+	Role       string   `json:"role"` // transit（中转机）或 landing（落地机）
+	Host       string   `json:"host"`
+	Port       int      `json:"port"`
+	Username   string   `json:"username"`
+	Password   string   `json:"password"`
+	Mode       string   `json:"mode"` // all（全部流量）或 categories（指定分类）
+	Categories []string `json:"categories"`
 }
 
 type RealityCandidate struct {

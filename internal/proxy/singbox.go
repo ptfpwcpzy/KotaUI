@@ -73,9 +73,28 @@ func Write(state config.State, runtime config.Runtime) error {
 		}
 	}
 	sort.Strings(statsUsers)
+	relay := state.Settings.Relay
+	if relay.Enabled && relay.Role == "landing" {
+		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": "relay-in", "listen": "0.0.0.0", "listen_port": relay.Port, "version": "5", "users": []map[string]any{{"username": relay.Username, "password": relay.Password}}})
+	}
 	directOutbound := map[string]any{"type": "direct", "tag": "direct"}
 	if strategy := state.Settings.OutboundStrategy; strategy != "" && strategy != "auto" {
 		directOutbound["domain_strategy"] = strategy
+	}
+	outbounds := []map[string]any{directOutbound}
+	if relay.Enabled && relay.Role == "transit" {
+		relayOutbound := map[string]any{"type": "socks", "tag": "relay", "server": relay.Host, "server_port": relay.Port, "version": "5"}
+		if relay.Username != "" {
+			relayOutbound["username"] = relay.Username
+		}
+		if relay.Password != "" {
+			relayOutbound["password"] = relay.Password
+		}
+		if relay.Mode == "all" {
+			outbounds = []map[string]any{relayOutbound, directOutbound}
+		} else {
+			outbounds = []map[string]any{directOutbound, relayOutbound}
+		}
 	}
 	root := map[string]any{
 		// 只记录 error 级别且输出到 stderr：由 systemd-journald / OpenRC 统一收集并轮转，
@@ -83,7 +102,7 @@ func Write(state config.State, runtime config.Runtime) error {
 		// 正是服务 stdout/stderr（journalctl / /var/log/kotaui-singbox.log），不受影响。
 		"log":       map[string]any{"level": "error", "timestamp": true},
 		"inbounds":  inbounds,
-		"outbounds": []map[string]any{directOutbound},
+		"outbounds": outbounds,
 		"experimental": map[string]any{
 			"v2ray_api": map[string]any{
 				"listen": fmt.Sprintf("127.0.0.1:%d", runtime.StatsPort),
@@ -91,7 +110,16 @@ func Write(state config.State, runtime config.Runtime) error {
 			},
 		},
 	}
-	if len(state.Settings.BlockedDomains) > 0 || state.Settings.BlockBitTorrent {
+	categoryRules := relayCategoryRules(relay)
+	route := map[string]any{}
+	if relay.Enabled && relay.Role == "transit" {
+		if relay.Mode == "all" {
+			route["final"] = "relay"
+		} else {
+			route["final"] = "direct"
+		}
+	}
+	if len(state.Settings.BlockedDomains) > 0 || state.Settings.BlockBitTorrent || len(categoryRules) > 0 {
 		rules := []map[string]any{{"action": "sniff", "timeout": "300ms"}}
 		if len(state.Settings.BlockedDomains) > 0 {
 			rules = append(rules, map[string]any{"domain_suffix": state.Settings.BlockedDomains, "action": "reject"})
@@ -99,7 +127,11 @@ func Write(state config.State, runtime config.Runtime) error {
 		if state.Settings.BlockBitTorrent {
 			rules = append(rules, map[string]any{"protocol": []string{"bittorrent"}, "action": "reject"})
 		}
-		root["route"] = map[string]any{"rules": rules}
+		rules = append(rules, categoryRules...)
+		route["rules"] = rules
+	}
+	if len(route) > 0 {
+		root["route"] = route
 	}
 	body, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -110,6 +142,57 @@ func Write(state config.State, runtime config.Runtime) error {
 		return err
 	}
 	return os.Rename(tmp, runtime.SingBoxConfig)
+}
+
+// relayCategories 是中转“指定分类”里每个分类对应的主域名（后缀匹配）。
+type relayCategory struct {
+	id      string
+	domains []string
+}
+
+var relayCategories = []relayCategory{
+	{"netflix", []string{"netflix.com", "nflxext.com", "nflximg.net", "nflxvideo.net"}},
+	{"disney", []string{"disneyplus.com", "disney-plus.net"}},
+	{"youtube", []string{"youtube.com", "googlevideo.com", "ytimg.com"}},
+	{"ai", []string{"openai.com", "chatgpt.com", "claude.ai", "anthropic.com", "deepseek.com", "grok.com"}},
+	{"game", []string{"steampowered.com", "steamcommunity.com", "epicgames.com", "playstation.com", "xbox.com"}},
+	{"social", []string{"x.com", "twitter.com", "instagram.com", "facebook.com", "fbcdn.net"}},
+	{"hbo", []string{"max.com", "hbomax.com"}},
+	{"prime", []string{"primevideo.com", "amazonvideo.com"}},
+	{"appletv", []string{"tv.apple.com"}},
+	{"tiktok", []string{"tiktok.com", "tiktokcdn.com"}},
+	{"twitch", []string{"twitch.tv", "twitchcdn.net"}},
+	{"spotify", []string{"spotify.com", "scdn.co"}},
+	{"telegram", []string{"telegram.org", "t.me"}},
+	{"cloud", []string{"dropbox.com", "drive.google.com", "onedrive.live.com", "box.com"}},
+	{"microsoft", []string{"microsoft.com", "office.com", "outlook.com", "live.com"}},
+	{"apple", []string{"apple.com", "icloud.com"}},
+	{"google", []string{"google.com", "gmail.com", "googleapis.com", "gstatic.com"}},
+}
+
+// RelayCategoryKnown 报告分类 id 是否在中转分类表里。
+func RelayCategoryKnown(id string) bool {
+	for _, category := range relayCategories {
+		if category.id == id {
+			return true
+		}
+	}
+	return false
+}
+
+func relayCategoryRules(relay config.RelaySettings) []map[string]any {
+	if !relay.Enabled || relay.Role != "transit" || relay.Mode != "categories" {
+		return nil
+	}
+	rules := []map[string]any{}
+	for _, id := range relay.Categories {
+		for _, category := range relayCategories {
+			if category.id == id {
+				rules = append(rules, map[string]any{"domain_suffix": category.domains, "outbound": "relay"})
+			}
+		}
+	}
+	return rules
 }
 
 func activeClients(clients []config.Client) []config.Client {
