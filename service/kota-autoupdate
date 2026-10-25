@@ -49,6 +49,40 @@ if command -v flock >/dev/null 2>&1 && exec 9>"$DATA_DIR/update.lock" 2>/dev/nul
   fi
 fi
 
+# 中转分类的第三方规则集：每天静默拉取一次，与面板自动更新同一节奏、同一开关。
+# 只替换下载成功且内容有变化的文件；下载失败保留旧文件；有变化才写 .updated 标记，
+# 面板发现标记变化且中转正在按分类走时，会重启核心让新规则生效。
+update_relay_rule_sets() {
+  dir="$DATA_DIR/rule-sets"
+  mkdir -p "$dir" || return 0
+  changed=0
+  for name in netflix disney youtube openai anthropic deepseek steam epicgames playstation xbox twitter instagram facebook hbo primevideo apple tiktok twitch spotify telegram dropbox onedrive google microsoft; do
+    file="$dir/geosite-$name.srs"
+    tmp="$file.tmp.$$"
+    url="https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-$name.srs"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL --max-time 60 "$url" -o "$tmp" 2>/dev/null || { rm -f "$tmp"; log "中转规则集 geosite-$name 下载失败，保留旧文件。"; continue; }
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -T 60 -O "$tmp" "$url" 2>/dev/null || { rm -f "$tmp"; log "中转规则集 geosite-$name 下载失败，保留旧文件。"; continue; }
+    else
+      log '中转规则集更新跳过：系统里没有 curl 或 wget。'
+      return 0
+    fi
+    if [ ! -f "$file" ] || ! cmp -s "$tmp" "$file"; then
+      mv -f "$tmp" "$file"
+      changed=1
+    else
+      rm -f "$tmp"
+    fi
+  done
+  if [ "$changed" = 1 ]; then
+    date +%s > "$dir/.updated"
+    log '中转规则集已更新。'
+  fi
+}
+
+update_relay_rule_sets
+
 remote=$(git ls-remote "$REPO_URL" HEAD 2>/dev/null | awk 'NR==1{print $1}')
 if [ -z "$remote" ]; then
   log '无法获取仓库最新提交（网络或仓库不可达），跳过本次检查。'

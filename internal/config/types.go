@@ -41,6 +41,7 @@ type State struct {
 	Settings        Settings                   `json:"settings"`
 	Inbounds        []Inbound                  `json:"inbounds"`
 	Clients         []Client                   `json:"clients"`
+	RelayTraffic    RelayTraffic               `json:"relayTraffic,omitempty"`
 	TrafficCounters map[string]TrafficCounters `json:"trafficCounters,omitempty"`
 	DailyUsage      []DailyUsage               `json:"dailyUsage,omitempty"`
 	DailyDate       string                     `json:"dailyDate,omitempty"`
@@ -51,6 +52,17 @@ type State struct {
 type DailyUsage struct {
 	Date  string `json:"date"`
 	Bytes int64  `json:"bytes"`
+}
+
+// RelayTraffic 是落地机上中转流量的累计：来源是中转入站专用账号的统计，
+// 在面板上以“中转主机A”的名义展示，不占用一个真实客户端名额。
+type RelayTraffic struct {
+	UsedBytes        int64        `json:"usedBytes"`
+	MonthlyUsedBytes int64        `json:"monthlyUsedBytes"`
+	DailyUsedBytes   int64        `json:"dailyUsedBytes"`
+	Month            string       `json:"month"`
+	DailyDate        string       `json:"dailyDate"`
+	DailyHistory     []DailyUsage `json:"dailyHistory,omitempty"`
 }
 
 type TrafficCounters struct {
@@ -121,6 +133,7 @@ type Inbound struct {
 type Client struct {
 	ID                   string            `json:"id"`
 	Username             string            `json:"username"`
+	Relay                bool              `json:"relay,omitempty"`
 	SubscriptionSuffix   string            `json:"subscriptionSuffix,omitempty"`
 	InboundIDs           []string          `json:"inboundIds"`
 	Credentials          map[string]string `json:"credentials"`

@@ -117,12 +117,20 @@ func (a *App) syncTraffic() {
 	}
 	a.lastTrafficSync = nowTime
 	state := a.store.Snapshot()
-	if len(state.Clients) == 0 {
+	relayLanding := state.Settings.Relay.Enabled && state.Settings.Relay.Role == "landing" && state.Settings.Relay.Username != ""
+	relayUsername := ""
+	if relayLanding {
+		relayUsername = state.Settings.Relay.Username
+	}
+	if len(state.Clients) == 0 && !relayLanding {
 		return
 	}
-	usernames := make([]string, 0, len(state.Clients))
+	usernames := make([]string, 0, len(state.Clients)+1)
 	for _, client := range state.Clients {
 		usernames = append(usernames, client.Username)
+	}
+	if relayLanding {
+		usernames = append(usernames, relayUsername)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
@@ -132,7 +140,11 @@ func (a *App) syncTraffic() {
 	}
 	month := nowTime.Format("2006-01")
 	today := nowTime.In(config.PanelLocation).Format("2006-01-02")
-	needsSave := len(state.TrafficCounters) != len(state.Clients)
+	expectedCounters := len(state.Clients)
+	if relayLanding {
+		expectedCounters++
+	}
+	needsSave := len(state.TrafficCounters) != expectedCounters
 	if !needsSave {
 		for _, client := range state.Clients {
 			if client.Month != month || client.DailyDate != today || state.TrafficCounters[client.Username] != current[client.Username] {
@@ -141,19 +153,29 @@ func (a *App) syncTraffic() {
 			}
 		}
 	}
+	if !needsSave && relayLanding {
+		if state.RelayTraffic.Month != month || state.RelayTraffic.DailyDate != today || state.TrafficCounters[relayUsername] != current[relayUsername] {
+			needsSave = true
+		}
+	}
 	if !needsSave {
 		return
 	}
 	// Structural changes (month/day rollover, clients added or removed) persist
 	// immediately; plain counter growth is batched and flushed at most once a
 	// minute, so state.json is not rewritten on every 15s sync while traffic flows.
-	structural := len(state.TrafficCounters) != len(state.Clients)
+	structural := len(state.TrafficCounters) != expectedCounters
 	if !structural {
 		for _, client := range state.Clients {
 			if client.Month != month || client.DailyDate != today {
 				structural = true
 				break
 			}
+		}
+	}
+	if !structural && relayLanding {
+		if state.RelayTraffic.Month != month || state.RelayTraffic.DailyDate != today {
+			structural = true
 		}
 	}
 	if !structural {
@@ -217,6 +239,31 @@ func (a *App) syncTraffic() {
 				reloadCore = true
 			}
 		}
+		if relayLanding {
+			relay := &next.RelayTraffic
+			if relay.Month != month {
+				relay.Month = month
+				relay.MonthlyUsedBytes = 0
+			}
+			if relay.DailyDate != today {
+				if relay.DailyDate != "" {
+					relay.DailyHistory = append(relay.DailyHistory, config.DailyUsage{Date: relay.DailyDate, Bytes: relay.DailyUsedBytes})
+					if len(relay.DailyHistory) > 31 {
+						relay.DailyHistory = relay.DailyHistory[len(relay.DailyHistory)-31:]
+					}
+				}
+				relay.DailyDate = today
+				relay.DailyUsedBytes = 0
+			}
+			now := current[relayUsername]
+			before := next.TrafficCounters[relayUsername]
+			if delta := trafficDelta(now.Upload, before.Upload) + trafficDelta(now.Download, before.Download); delta > 0 {
+				relay.UsedBytes += delta
+				relay.MonthlyUsedBytes += delta
+				relay.DailyUsedBytes += delta
+			}
+			next.TrafficCounters[relayUsername] = now
+		}
 		for username := range next.TrafficCounters {
 			found := false
 			for _, client := range next.Clients {
@@ -224,6 +271,9 @@ func (a *App) syncTraffic() {
 					found = true
 					break
 				}
+			}
+			if !found && relayLanding && username == relayUsername {
+				found = true
 			}
 			if !found {
 				delete(next.TrafficCounters, username)

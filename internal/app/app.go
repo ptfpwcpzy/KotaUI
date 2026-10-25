@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -178,7 +179,52 @@ func (a *App) startBackgroundTasks() {
 		go a.syncTrafficLoop()
 		go a.networkQualityLoop()
 		go a.removeUnusedDistroSingBox()
+		go a.relayRuleSetWatchLoop()
 	})
+}
+
+// nextRelayRuleSetMarker 推进规则集更新标记状态：空标记不推进；第一次见到标记
+// 只记基线不触发重启；标记变化才触发重启。
+func nextRelayRuleSetMarker(applied, marker string) (string, bool) {
+	if marker == "" {
+		return applied, false
+	}
+	if applied == "" {
+		return marker, false
+	}
+	if marker == applied {
+		return applied, false
+	}
+	return marker, true
+}
+
+// relayRuleSetWatchLoop 盯着 kota-autoupdate 写的规则集更新标记：标记变化且中转
+// 正在按分类走时，重启核心让新规则生效。标记不存在或面板刚启动时只记基线，不重启
+// （刚启动的核心本来就读到了最新的规则集文件）。
+func (a *App) relayRuleSetWatchLoop() {
+	var applied string
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		state := a.store.Snapshot()
+		relay := state.Settings.Relay
+		if !relay.Enabled || relay.Role != "transit" || relay.Mode != "categories" {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(a.runtime.DataDir, "rule-sets", ".updated"))
+		if err != nil {
+			continue
+		}
+		marker := strings.TrimSpace(string(body))
+		next, changed := nextRelayRuleSetMarker(applied, marker)
+		applied = next
+		if !changed {
+			continue
+		}
+		if err := a.restartManagedSingBox(); err != nil {
+			log.Printf("中转规则集更新后核心重启失败：%v", err)
+		}
+	}
 }
 
 func (a *App) syncTrafficLoop() {
@@ -580,7 +626,14 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		a.resetMonth()
 		a.syncTraffic()
-		writeJSON(w, http.StatusOK, a.store.Snapshot().Clients)
+		snapshot := a.store.Snapshot()
+		clients := make([]config.Client, 0, len(snapshot.Clients)+1)
+		clients = append(clients, snapshot.Clients...)
+		if relay := snapshot.Settings.Relay; relay.Enabled && relay.Role == "landing" {
+			traffic := snapshot.RelayTraffic
+			clients = append(clients, config.Client{ID: "relay", Username: "中转主机A", Relay: true, InboundIDs: []string{}, UsedBytes: traffic.UsedBytes, MonthlyUsedBytes: traffic.MonthlyUsedBytes, DailyUsedBytes: traffic.DailyUsedBytes})
+		}
+		writeJSON(w, http.StatusOK, clients)
 	case http.MethodPost:
 		var request clientCreateRequest
 
@@ -1410,6 +1463,20 @@ func dailyTrafficByUser(s config.State, now time.Time) []map[string]any {
 				}
 			}
 			users = append(users, map[string]any{"username": client.Username, "bytes": b})
+		}
+		if s.Settings.Relay.Enabled && s.Settings.Relay.Role == "landing" {
+			var b int64
+			if day == s.RelayTraffic.DailyDate {
+				b = s.RelayTraffic.DailyUsedBytes
+			} else {
+				for _, h := range s.RelayTraffic.DailyHistory {
+					if h.Date == day {
+						b = h.Bytes
+						break
+					}
+				}
+			}
+			users = append(users, map[string]any{"username": "中转主机A", "bytes": b})
 		}
 		out = append(out, map[string]any{"date": day, "users": users})
 	}

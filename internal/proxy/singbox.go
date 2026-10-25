@@ -66,14 +66,18 @@ func Write(state config.State, runtime config.Runtime) error {
 			inbounds = append(inbounds, map[string]any{"type": "shadowsocks", "tag": inbound.ID, "listen": inbound.Listen, "listen_port": inbound.Port, "method": "2022-blake3-aes-256-gcm", "password": inbound.ServerPassword, "users": users})
 		}
 	}
+	relay := state.Settings.Relay
 	statsUsers := make([]string, 0, len(state.Clients))
 	for _, client := range state.Clients {
 		if client.Username != "" {
 			statsUsers = append(statsUsers, client.Username)
 		}
 	}
+	// 落地机的中转入站专用账号也要计入统计用户，否则中转流量统计不到。
+	if relay.Enabled && relay.Role == "landing" && relay.Username != "" {
+		statsUsers = append(statsUsers, relay.Username)
+	}
 	sort.Strings(statsUsers)
-	relay := state.Settings.Relay
 	if relay.Enabled && relay.Role == "landing" {
 		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": "relay-in", "listen": "0.0.0.0", "listen_port": relay.Port, "version": "5", "users": []map[string]any{{"username": relay.Username, "password": relay.Password}}})
 	}
@@ -111,6 +115,7 @@ func Write(state config.State, runtime config.Runtime) error {
 		},
 	}
 	categoryRules := relayCategoryRules(relay)
+	ruleSets, ruleSetRules := relayRuleSets(relay, runtime)
 	route := map[string]any{}
 	if relay.Enabled && relay.Role == "transit" {
 		if relay.Mode == "all" {
@@ -119,7 +124,7 @@ func Write(state config.State, runtime config.Runtime) error {
 			route["final"] = "direct"
 		}
 	}
-	if len(state.Settings.BlockedDomains) > 0 || state.Settings.BlockBitTorrent || len(categoryRules) > 0 {
+	if len(state.Settings.BlockedDomains) > 0 || state.Settings.BlockBitTorrent || len(categoryRules) > 0 || len(ruleSetRules) > 0 {
 		rules := []map[string]any{{"action": "sniff", "timeout": "300ms"}}
 		if len(state.Settings.BlockedDomains) > 0 {
 			rules = append(rules, map[string]any{"domain_suffix": state.Settings.BlockedDomains, "action": "reject"})
@@ -128,7 +133,11 @@ func Write(state config.State, runtime config.Runtime) error {
 			rules = append(rules, map[string]any{"protocol": []string{"bittorrent"}, "action": "reject"})
 		}
 		rules = append(rules, categoryRules...)
+		rules = append(rules, ruleSetRules...)
 		route["rules"] = rules
+	}
+	if len(ruleSets) > 0 {
+		route["rule_set"] = ruleSets
 	}
 	if len(route) > 0 {
 		root["route"] = route
@@ -144,30 +153,32 @@ func Write(state config.State, runtime config.Runtime) error {
 	return os.Rename(tmp, runtime.SingBoxConfig)
 }
 
-// relayCategories 是中转“指定分类”里每个分类对应的主域名（后缀匹配）。
+// relayCategories 是中转“指定分类”里每个分类对应的主域名（后缀匹配，始终生效兜底）
+// 与第三方规则集（sing-geosite 的 geosite-*.srs 文件名后缀，自动更新后生效）。
 type relayCategory struct {
 	id      string
 	domains []string
+	sets    []string
 }
 
 var relayCategories = []relayCategory{
-	{"netflix", []string{"netflix.com", "nflxext.com", "nflximg.net", "nflxvideo.net"}},
-	{"disney", []string{"disneyplus.com", "disney-plus.net"}},
-	{"youtube", []string{"youtube.com", "googlevideo.com", "ytimg.com"}},
-	{"ai", []string{"openai.com", "chatgpt.com", "claude.ai", "anthropic.com", "deepseek.com", "grok.com"}},
-	{"game", []string{"steampowered.com", "steamcommunity.com", "epicgames.com", "playstation.com", "xbox.com"}},
-	{"social", []string{"x.com", "twitter.com", "instagram.com", "facebook.com", "fbcdn.net"}},
-	{"hbo", []string{"max.com", "hbomax.com"}},
-	{"prime", []string{"primevideo.com", "amazonvideo.com"}},
-	{"appletv", []string{"tv.apple.com"}},
-	{"tiktok", []string{"tiktok.com", "tiktokcdn.com"}},
-	{"twitch", []string{"twitch.tv", "twitchcdn.net"}},
-	{"spotify", []string{"spotify.com", "scdn.co"}},
-	{"telegram", []string{"telegram.org", "t.me"}},
-	{"cloud", []string{"dropbox.com", "drive.google.com", "onedrive.live.com", "box.com"}},
-	{"microsoft", []string{"microsoft.com", "office.com", "outlook.com", "live.com"}},
-	{"apple", []string{"apple.com", "icloud.com"}},
-	{"google", []string{"google.com", "gmail.com", "googleapis.com", "gstatic.com"}},
+	{"netflix", []string{"netflix.com", "nflxext.com", "nflximg.net", "nflxvideo.net"}, []string{"netflix"}},
+	{"disney", []string{"disneyplus.com", "disney-plus.net"}, []string{"disney"}},
+	{"youtube", []string{"youtube.com", "googlevideo.com", "ytimg.com"}, []string{"youtube"}},
+	{"ai", []string{"openai.com", "chatgpt.com", "claude.ai", "anthropic.com", "deepseek.com", "grok.com"}, []string{"openai", "anthropic", "deepseek"}},
+	{"game", []string{"steampowered.com", "steamcommunity.com", "epicgames.com", "playstation.com", "xbox.com"}, []string{"steam", "epicgames", "playstation", "xbox"}},
+	{"social", []string{"x.com", "twitter.com", "instagram.com", "facebook.com", "fbcdn.net"}, []string{"twitter", "instagram", "facebook"}},
+	{"hbo", []string{"max.com", "hbomax.com"}, []string{"hbo"}},
+	{"prime", []string{"primevideo.com", "amazonvideo.com"}, []string{"primevideo"}},
+	{"appletv", []string{"tv.apple.com"}, []string{"apple"}},
+	{"tiktok", []string{"tiktok.com", "tiktokcdn.com"}, []string{"tiktok"}},
+	{"twitch", []string{"twitch.tv", "twitchcdn.net"}, []string{"twitch"}},
+	{"spotify", []string{"spotify.com", "scdn.co"}, []string{"spotify"}},
+	{"telegram", []string{"telegram.org", "t.me"}, []string{"telegram"}},
+	{"cloud", []string{"dropbox.com", "drive.google.com", "onedrive.live.com", "box.com"}, []string{"dropbox", "onedrive"}},
+	{"microsoft", []string{"microsoft.com", "office.com", "outlook.com", "live.com"}, []string{"microsoft"}},
+	{"apple", []string{"apple.com", "icloud.com"}, []string{"apple"}},
+	{"google", []string{"google.com", "gmail.com", "googleapis.com", "gstatic.com"}, []string{"google"}},
 }
 
 // RelayCategoryKnown 报告分类 id 是否在中转分类表里。
@@ -193,6 +204,42 @@ func relayCategoryRules(relay config.RelaySettings) []map[string]any {
 		}
 	}
 	return rules
+}
+
+// relayRuleSets 返回中转分类对应的本地第三方规则集：只有磁盘上已存在的文件才引用，
+// 缺失的文件自动跳过（内置域名规则仍会兜底），核心启动绝不因为规则集缺失而失败。
+// 文件由 kota-autoupdate 每天从 sing-geosite 拉取到数据目录的 rule-sets/ 下。
+func relayRuleSets(relay config.RelaySettings, runtime config.Runtime) ([]map[string]any, []map[string]any) {
+	if !relay.Enabled || relay.Role != "transit" || relay.Mode != "categories" || runtime.DataDir == "" {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	ruleSets := []map[string]any{}
+	rules := []map[string]any{}
+	for _, id := range relay.Categories {
+		for _, category := range relayCategories {
+			if category.id != id {
+				continue
+			}
+			tags := []string{}
+			for _, set := range category.sets {
+				path := filepath.Join(runtime.DataDir, "rule-sets", "geosite-"+set+".srs")
+				if _, err := os.Stat(path); err != nil {
+					continue
+				}
+				tag := "geosite-" + set
+				if !seen[tag] {
+					seen[tag] = true
+					ruleSets = append(ruleSets, map[string]any{"type": "local", "tag": tag, "format": "binary", "path": path})
+				}
+				tags = append(tags, tag)
+			}
+			if len(tags) > 0 {
+				rules = append(rules, map[string]any{"rule_set": tags, "outbound": "relay"})
+			}
+		}
+	}
+	return ruleSets, rules
 }
 
 func activeClients(clients []config.Client) []config.Client {

@@ -257,6 +257,102 @@ func TestWriteRelayTransitCategoriesRoutesOnlySelected(t *testing.T) {
 	}
 }
 
+func TestWriteRelayCategoriesUsesLocalRuleSetsWhenPresent(t *testing.T) {
+	directory := t.TempDir()
+	ruleSets := filepath.Join(directory, "rule-sets")
+	if err := os.MkdirAll(ruleSets, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ruleSets, "geosite-netflix.srs"), []byte("fake-srs"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "transit", Host: "203.0.113.10", Port: 41234, Mode: "categories", Categories: []string{"netflix", "youtube"}}
+	runtime := config.Runtime{DataDir: directory, SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Route struct {
+			RuleSets []struct {
+				Type   string `json:"type"`
+				Tag    string `json:"tag"`
+				Format string `json:"format"`
+				Path   string `json:"path"`
+			} `json:"rule_set"`
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Route.RuleSets) != 1 || decoded.Route.RuleSets[0].Type != "local" || decoded.Route.RuleSets[0].Tag != "geosite-netflix" || decoded.Route.RuleSets[0].Format != "binary" || decoded.Route.RuleSets[0].Path != filepath.Join(ruleSets, "geosite-netflix.srs") {
+		t.Fatalf("unexpected rule sets: %#v", decoded.Route.RuleSets)
+	}
+	ruleSetRules, domainRules := 0, 0
+	for _, rule := range decoded.Route.Rules {
+		if _, ok := rule["rule_set"]; ok {
+			ruleSetRules++
+		}
+		if _, ok := rule["domain_suffix"]; ok {
+			domainRules++
+		}
+	}
+	if ruleSetRules != 1 || domainRules != 2 {
+		t.Fatalf("rule_set rules = %d, domain rules = %d, want 1 and 2", ruleSetRules, domainRules)
+	}
+}
+
+func TestWriteRelayCategoriesSkipsMissingRuleSets(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "transit", Host: "203.0.113.10", Port: 41234, Mode: "categories", Categories: []string{"netflix"}}
+	runtime := config.Runtime{DataDir: directory, SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "rule_set") {
+		t.Fatalf("missing rule set files must not be referenced: %s", body)
+	}
+}
+
+func TestWriteRelayLandingUserCountedInStats(t *testing.T) {
+	directory := t.TempDir()
+	state := config.DefaultState("example.test")
+	state.Settings.Relay = config.RelaySettings{Enabled: true, Role: "landing", Port: 41234, Username: "relay-abc", Password: "secret"}
+	runtime := config.Runtime{DataDir: directory, SingBoxConfig: filepath.Join(directory, "config.json"), StatsPort: 19090}
+	if err := Write(state, runtime); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(runtime.SingBoxConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Experimental struct {
+			V2RayAPI struct {
+				Stats struct {
+					Users []string `json:"users"`
+				} `json:"stats"`
+			} `json:"v2ray_api"`
+		} `json:"experimental"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Experimental.V2RayAPI.Stats.Users) != 1 || decoded.Experimental.V2RayAPI.Stats.Users[0] != "relay-abc" {
+		t.Fatalf("unexpected stats users: %#v", decoded.Experimental.V2RayAPI.Stats.Users)
+	}
+}
+
 func TestWriteAddsDomainAndBitTorrentBlockRules(t *testing.T) {
 	directory := t.TempDir()
 	state := config.DefaultState("example.test")
