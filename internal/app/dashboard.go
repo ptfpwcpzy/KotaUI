@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -34,6 +35,61 @@ type healthHint struct {
 }
 
 const onlineActivityWindow = 20 * time.Second
+
+// splitHostAddresses 把地址字符串分成 IPv4/IPv6 两组：去掉回环、链路本地、
+// 组播和非法地址，去掉掩码和 zone 后缀，去重并排序。
+func splitHostAddresses(addrs []string) (ipv4, ipv6 []string) {
+	seen4, seen6 := map[string]bool{}, map[string]bool{}
+	for _, raw := range addrs {
+		text := raw
+		if i := strings.Index(text, "/"); i >= 0 {
+			text = text[:i]
+		}
+		if i := strings.Index(text, "%"); i >= 0 {
+			text = text[:i]
+		}
+		ip := net.ParseIP(strings.TrimSpace(text))
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+			continue
+		}
+		if ip.To4() != nil {
+			if !seen4[ip.String()] {
+				seen4[ip.String()] = true
+				ipv4 = append(ipv4, ip.String())
+			}
+		} else {
+			if !seen6[ip.String()] {
+				seen6[ip.String()] = true
+				ipv6 = append(ipv6, ip.String())
+			}
+		}
+	}
+	sort.Strings(ipv4)
+	sort.Strings(ipv6)
+	return ipv4, ipv6
+}
+
+// hostAddresses 返回主机各网卡上的 IPv4/IPv6 地址（不含回环与链路本地）。
+func hostAddresses() (ipv4, ipv6 []string) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, nil
+	}
+	raw := []string{}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			raw = append(raw, addr.String())
+		}
+	}
+	return splitHostAddresses(raw)
+}
 
 func recordedUptime(path string, now time.Time) int64 {
 	body, err := os.ReadFile(path)

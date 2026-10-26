@@ -455,7 +455,10 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	}
 	uptimeNow := time.Now()
 	bootSeconds := procBootSeconds()
+	hostIPv4, hostIPv6 := hostAddresses()
 	writeJSON(w, http.StatusOK, map[string]any{
+		"hostIPv4":            hostIPv4,
+		"hostIPv6":            hostIPv6,
 		"metrics":             system.Collect(a.runtime.DataDir, ports),
 		"activeClients":       active,
 		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
