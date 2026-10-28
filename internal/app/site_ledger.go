@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/proxy"
+	"golang.org/x/net/publicsuffix"
 )
 
 // 网站排行账本：核心在连接关闭时写一条 JSON 记录，面板增量聚合到每天一个
@@ -72,7 +74,6 @@ var siteServices = []siteService{
 	{[]string{"dailymotion.com"}, "dailymotion", "Dailymotion", "dailymotion.com", "dailymotion"},
 	{[]string{"crunchyroll.com"}, "crunchyroll", "Crunchyroll", "crunchyroll.com", "crunchyroll"},
 	{[]string{"max.com", "hbomax.com"}, "hbomax", "HBO Max", "max.com", "hbomax"},
-	{[]string{"tv.apple.com"}, "appletv", "Apple TV+", "tv.apple.com", "appletv"},
 	{[]string{"paramountplus.com"}, "paramountplus", "Paramount+", "paramountplus.com", "paramountplus"},
 	{[]string{"tubitv.com"}, "tubi", "Tubi", "tubitv.com", "tubi"},
 	{[]string{"plex.tv"}, "plex", "Plex", "plex.tv", "plex"},
@@ -121,7 +122,6 @@ var siteServices = []siteService{
 	{[]string{"clubhouse.com"}, "clubhouse", "Clubhouse", "clubhouse.com", "clubhouse"},
 	{[]string{"openai.com", "chatgpt.com"}, "openai", "OpenAI", "openai.com", "openai"},
 	{[]string{"claude.ai", "anthropic.com"}, "claude", "Claude", "claude.ai", "claude"},
-	{[]string{"gemini.google.com"}, "gemini", "Gemini", "gemini.google.com", "gemini"},
 	{[]string{"deepseek.com"}, "deepseek", "DeepSeek", "deepseek.com", "deepseek"},
 	{[]string{"grok.com", "x.ai"}, "grok", "Grok", "grok.com", "grok"},
 	{[]string{"midjourney.com"}, "midjourney", "Midjourney", "midjourney.com", "midjourney"},
@@ -130,8 +130,7 @@ var siteServices = []siteService{
 	{[]string{"huggingface.co"}, "huggingface", "Hugging Face", "huggingface.co", "huggingface"},
 	{[]string{"cohere.com"}, "cohere", "Cohere", "cohere.com", "cohere"},
 	{[]string{"cursor.com"}, "cursor", "Cursor", "cursor.com", "cursor"},
-	{[]string{"meta.ai", "meta.com", "metaaivm.com"}, "meta", "Meta AI", "meta.ai", "meta"},
-	{[]string{"copilot.microsoft.com"}, "copilot", "Copilot", "copilot.microsoft.com", "copilot"},
+	{[]string{"meta.ai", "meta.com", "metaaivm.com"}, "meta", "Muse", "meta.ai", "meta"},
 	{[]string{"suno.com"}, "suno", "Suno", "suno.com", "suno"},
 	{[]string{"elevenlabs.io"}, "elevenlabs", "ElevenLabs", "elevenlabs.io", "elevenlabs"},
 	{[]string{"replicate.com"}, "replicate", "Replicate", "replicate.com", "replicate"},
@@ -139,8 +138,6 @@ var siteServices = []siteService{
 	{[]string{"runwayml.com"}, "runway", "Runway", "runwayml.com", "runway"},
 	{[]string{"stability.ai"}, "stablediffusion", "Stable Diffusion", "stability.ai", "stablediffusion"},
 	{[]string{"spotify.com", "scdn.co"}, "spotify", "Spotify", "spotify.com", "spotify"},
-	{[]string{"music.apple.com"}, "applemusic", "Apple Music", "music.apple.com", "applemusic"},
-	{[]string{"music.youtube.com"}, "youtubemusic", "YouTube Music", "music.youtube.com", "youtubemusic"},
 	{[]string{"soundcloud.com"}, "soundcloud", "SoundCloud", "soundcloud.com", "soundcloud"},
 	{[]string{"tidal.com"}, "tidal", "Tidal", "tidal.com", "tidal"},
 	{[]string{"deezer.com"}, "deezer", "Deezer", "deezer.com", "deezer"},
@@ -175,26 +172,20 @@ var siteServices = []siteService{
 	{[]string{"atari.com"}, "atari", "Atari", "atari.com", "atari"},
 	{[]string{"nintendo.com"}, "nintendo", "Nintendo", "nintendo.com", "nintendo"},
 	{[]string{"minecraft.net"}, "minecraft", "Minecraft", "minecraft.net", "minecraft"},
-	{[]string{"google.com", "googleapis.com", "gstatic.com"}, "google", "Google", "google.com", "google"},
-	{[]string{"mail.google.com", "gmail.com"}, "gmail", "Gmail", "mail.google.com", "gmail"},
-	{[]string{"drive.google.com"}, "googledrive", "Google Drive", "drive.google.com", "googledrive"},
-	{[]string{"maps.google.com"}, "googlemaps", "Google Maps", "maps.google.com", "googlemaps"},
-	{[]string{"scholar.google.com"}, "googlescholar", "Google Scholar", "scholar.google.com", "googlescholar"},
+	{[]string{"google.com", "googleapis.com", "gstatic.com", "gmail.com"}, "google", "Google", "google.com", "google"},
 	{[]string{"notion.so"}, "notion", "Notion", "notion.so", "notion"},
 	{[]string{"slack.com"}, "slack", "Slack", "slack.com", "slack"},
 	{[]string{"zoom.us"}, "zoom", "Zoom", "zoom.us", "zoom"},
 	{[]string{"dropbox.com"}, "dropbox", "Dropbox", "dropbox.com", "dropbox"},
 	{[]string{"box.com"}, "box", "Box", "box.com", "box"},
-	{[]string{"icloud.com"}, "icloud", "iCloud", "icloud.com", "icloud"},
-	{[]string{"onedrive.live.com"}, "onedrive", "OneDrive", "onedrive.live.com", "onedrive"},
 	{[]string{"github.com", "githubusercontent.com"}, "github", "GitHub", "github.com", "github"},
 	{[]string{"gitlab.com"}, "gitlab", "GitLab", "gitlab.com", "gitlab"},
 	{[]string{"stackoverflow.com", "stackexchange.com"}, "stackoverflow", "Stack Overflow", "stackoverflow.com", "stackoverflow"},
 	{[]string{"wikipedia.org", "wikimedia.org"}, "wikipedia", "Wikipedia", "wikipedia.org", "wikipedia"},
 	{[]string{"figma.com"}, "figma", "Figma", "figma.com", "figma"},
 	{[]string{"adobe.com"}, "adobe", "Adobe", "adobe.com", "adobe"},
-	{[]string{"microsoft.com", "office.com", "outlook.com", "live.com"}, "microsoft", "Microsoft", "microsoft.com", "microsoft"},
-	{[]string{"apple.com"}, "apple", "Apple", "apple.com", "apple"},
+	{[]string{"microsoft.com", "office.com", "outlook.com", "live.com", "appcenter.ms"}, "microsoft", "Microsoft", "microsoft.com", "microsoft"},
+	{[]string{"apple.com", "icloud.com"}, "apple", "Apple", "apple.com", "apple"},
 	{[]string{"evernote.com"}, "evernote", "Evernote", "evernote.com", "evernote"},
 	{[]string{"asana.com"}, "asana", "Asana", "asana.com", "asana"},
 	{[]string{"trello.com"}, "trello", "Trello", "trello.com", "trello"},
@@ -357,7 +348,21 @@ func init() {
 	})
 }
 
-// mapSiteHost 把连接域名归到服务：返回服务 id；未映射的域名返回以域名为
+// baseDomain 把域名归约到可注册主域名（eTLD+1）：同主域名的各级子域名
+// 在排行里归并到同一行。IP、单标签域名或算不出的，返回原域名。
+func baseDomain(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.TrimSuffix(host, ".")
+	if host == "" || net.ParseIP(host) != nil {
+		return host
+	}
+	if base, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil && base != "" {
+		return base
+	}
+	return host
+}
+
+// mapSiteHost 把连接域名归到服务：返回服务 id；未映射的域名返回以主域名为
 // 键的键，空域名返回未知服务键。
 func mapSiteHost(host string) (key string, service *siteService) {
 	host = strings.ToLower(strings.TrimSpace(host))
@@ -369,7 +374,7 @@ func mapSiteHost(host string) (key string, service *siteService) {
 			return entry.service.id, entry.service
 		}
 	}
-	return "domain:" + host, nil
+	return "domain:" + baseDomain(host), nil
 }
 
 func siteServiceByID(id string) *siteService {
@@ -640,11 +645,28 @@ func buildSiteRanking(ledger *daySiteLedger, username string) siteRanking {
 		key    string
 		totals *siteTotals
 	}
-	rows := make([]scored, 0, len(userServices))
+	// 先按展示键归并：旧账本里按完整域名存的行，按当前服务表重归并，
+	// 同主域名的子域名、以及新旧两种键，合并成同一行。
+	merged := map[string]*siteTotals{}
 	for key, totals := range userServices {
 		if totals == nil || totals.bytes() == 0 {
 			continue
 		}
+		displayKey := key
+		if host, ok := strings.CutPrefix(key, "domain:"); ok {
+			displayKey, _ = mapSiteHost(baseDomain(host))
+		}
+		m := merged[displayKey]
+		if m == nil {
+			m = &siteTotals{}
+			merged[displayKey] = m
+		}
+		m.Upload += totals.Upload
+		m.Download += totals.Download
+		m.Duration += totals.Duration
+	}
+	rows := make([]scored, 0, len(merged))
+	for key, totals := range merged {
 		rows = append(rows, scored{key: key, totals: totals})
 	}
 	sort.Slice(rows, func(a, b int) bool {

@@ -22,12 +22,25 @@ func TestMapSiteHost(t *testing.T) {
 		{"youtube.com", "youtube", "YouTube"},
 		{"www.youtube.com", "youtube", "YouTube"},
 		{"googlevideo.com", "youtube", "YouTube"},
-		{"tv.apple.com", "appletv", "Apple TV+"},
+		{"tv.apple.com", "apple", "Apple"},
 		{"apple.com", "apple", "Apple"},
-		{"drive.google.com", "googledrive", "Google Drive"},
-		{"graph.meta.ai", "meta", "Meta AI"},
-		{"hatch-api.meta.ai", "meta", "Meta AI"},
-		{"hatch.metaaivm.com", "meta", "Meta AI"},
+		{"drive.google.com", "google", "Google"},
+		{"gmail.com", "google", "Google"},
+		{"maps.google.com", "google", "Google"},
+		{"scholar.google.com", "google", "Google"},
+		{"gemini.google.com", "google", "Google"},
+		{"onedrive.live.com", "microsoft", "Microsoft"},
+		{"copilot.microsoft.com", "microsoft", "Microsoft"},
+		{"music.apple.com", "apple", "Apple"},
+		{"icloud.com", "apple", "Apple"},
+		{"music.youtube.com", "youtube", "YouTube"},
+		{"graph.meta.ai", "meta", "Muse"},
+		{"hatch-api.meta.ai", "meta", "Muse"},
+		{"hatch.metaaivm.com", "meta", "Muse"},
+		{"in.appcenter.ms", "microsoft", "Microsoft"},
+		{"sub.unknown.example", "domain:unknown.example", ""},
+		{"a.b.5224210.xyz", "domain:5224210.xyz", ""},
+		{"1.2.3.4", "domain:1.2.3.4", ""},
 		{"YouTube.COM", "youtube", "YouTube"},
 		{"unknown.example", "domain:unknown.example", ""},
 		{"", "unknown", ""},
@@ -44,6 +57,52 @@ func TestMapSiteHost(t *testing.T) {
 		if name != tc.service {
 			t.Errorf("mapSiteHost(%q) service = %q, want %q", tc.host, name, tc.service)
 		}
+	}
+}
+
+func TestBaseDomain(t *testing.T) {
+	cases := []struct{ host, want string }{
+		{"graph.meta.ai", "meta.ai"},
+		{"a.b.example.co.uk", "example.co.uk"},
+		{"foo.github.io", "foo.github.io"},
+		{"meta.ai", "meta.ai"},
+		{"WWW.Example.COM", "example.com"},
+		{"1.2.3.4", "1.2.3.4"},
+		{"localhost", "localhost"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := baseDomain(tc.host); got != tc.want {
+			t.Errorf("baseDomain(%q) = %q, want %q", tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestBuildSiteRankingMerge(t *testing.T) {
+	// 旧账本里按完整域名存的行 + 新表下已归并的行，展示时要合成一行。
+	ledger := newDaySiteLedger("2026-10-28")
+	ledger.Services["usa"] = map[string]*siteTotals{
+		"meta":                      {Upload: 100, Download: 100, Duration: 10},
+		"domain:graph.meta.ai":      {Upload: 50, Download: 50, Duration: 20},
+		"domain:hatch-api.meta.ai":  {Upload: 30, Download: 30, Duration: 30},
+		"domain:hatch.metaaivm.com": {Upload: 40, Download: 40, Duration: 40},
+		"domain:zouter.5224210.xyz": {Upload: 40, Download: 40, Duration: 5},
+		"domain:vmiss3.5224210.xyz": {Upload: 60, Download: 60, Duration: 7},
+	}
+	ranking := buildSiteRanking(ledger, "usa")
+	if len(ranking.Sites) != 2 {
+		t.Fatalf("sites = %d, want 2: %+v", len(ranking.Sites), ranking.Sites)
+	}
+	meta := ranking.Sites[0]
+	if meta.Name != "Muse" || meta.Domain != "meta.ai" || meta.Icon != "meta" || meta.Bytes != 440 || meta.Duration != 100 {
+		t.Errorf("meta row = %+v, want Muse/meta.ai/meta/440/100", meta)
+	}
+	priv := ranking.Sites[1]
+	if priv.Name != "5224210.xyz" || priv.Domain != "5224210.xyz" || priv.Icon != "un" || priv.Bytes != 200 || priv.Duration != 12 {
+		t.Errorf("private row = %+v, want 5224210.xyz/5224210.xyz/un/200/12", priv)
+	}
+	if ranking.OtherCount != 0 || ranking.OtherBytes != 0 {
+		t.Errorf("other = %d/%d, want 0/0", ranking.OtherCount, ranking.OtherBytes)
 	}
 }
 
