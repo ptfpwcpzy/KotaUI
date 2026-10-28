@@ -1,0 +1,162 @@
+diff --git a/experimental/clashapi/server.go b/experimental/clashapi/server.go
+index 950dca0..0a0a95a 100644
+--- a/experimental/clashapi/server.go
++++ b/experimental/clashapi/server.go
+@@ -87,6 +87,13 @@ func NewServer(ctx context.Context, logFactory log.ObservableFactory, options op
+ 	if s.urlTestHistory == nil {
+ 		s.urlTestHistory = urltest.NewHistoryStorage()
+ 	}
++	if options.SiteLogPath != "" {
++		if writer, err := newSiteLogWriter(options.SiteLogPath, s.logger); err != nil {
++			s.logger.Warn("create site log writer: ", err)
++		} else {
++			trafficManager.SetClosedHook(writer.handleClosed)
++		}
++	}
+ 	defaultMode := "Rule"
+ 	if options.DefaultMode != "" {
+ 		defaultMode = options.DefaultMode
+diff --git a/experimental/clashapi/site_log.go b/experimental/clashapi/site_log.go
+new file mode 100644
+index 0000000..baa34c5
+--- /dev/null
++++ b/experimental/clashapi/site_log.go
+@@ -0,0 +1,90 @@
++package clashapi
++
++import (
++	"encoding/json"
++	"os"
++	"sync"
++
++	C "github.com/sagernet/sing-box/constant"
++	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
++	"github.com/sagernet/sing-box/log"
++)
++
++// siteLogRecord is one line of the connection close log tailed by the panel.
++// Start and End are Unix seconds; Duration is End minus Start. Host is empty
++// when the connection carried no domain (IP literal or unsniffed traffic).
++type siteLogRecord struct {
++	User     string `json:"user"`
++	Host     string `json:"host"`
++	Upload   int64  `json:"upload"`
++	Download int64  `json:"download"`
++	Start    int64  `json:"start"`
++	End      int64  `json:"end"`
++}
++
++// siteLogWriter appends one JSON record per closed connection to a file. It
++// never blocks connection teardown: records go through a bounded channel and
++// are dropped when the channel is full, and write failures are logged once
++// and dropped. The file is opened with O_APPEND so an external reader may
++// safely truncate it once fully consumed.
++type siteLogWriter struct {
++	file  *os.File
++	queue chan []byte
++	once  sync.Once
++}
++
++func newSiteLogWriter(path string, logger log.Logger) (*siteLogWriter, error) {
++	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
++	if err != nil {
++		return nil, err
++	}
++	w := &siteLogWriter{file: file, queue: make(chan []byte, 8192)}
++	go w.run(logger)
++	return w, nil
++}
++
++func (w *siteLogWriter) handleClosed(metadata *trafficontrol.TrackerMetadata) {
++	if metadata == nil {
++		return
++	}
++	user := metadata.Metadata.User
++	if user == "" || metadata.OutboundType == C.TypeDNS {
++		return
++	}
++	upload := metadata.Upload.Load()
++	download := metadata.Download.Load()
++	if upload+download == 0 {
++		return
++	}
++	host := metadata.Metadata.Domain
++	if host == "" {
++		host = metadata.Metadata.Destination.Fqdn
++	}
++	record, err := json.Marshal(siteLogRecord{
++		User:     user,
++		Host:     host,
++		Upload:   upload,
++		Download: download,
++		Start:    metadata.CreatedAt.Unix(),
++		End:      metadata.ClosedAt.Unix(),
++	})
++	if err != nil {
++		return
++	}
++	record = append(record, '\n')
++	select {
++	case w.queue <- record:
++	default:
++		// Channel full: drop the record rather than blocking teardown.
++	}
++}
++
++func (w *siteLogWriter) run(logger log.Logger) {
++	for record := range w.queue {
++		if _, err := w.file.Write(record); err != nil {
++			w.once.Do(func() {
++				logger.Warn("write site log: ", err)
++			})
++		}
++	}
++}
+diff --git a/experimental/clashapi/trafficontrol/manager.go b/experimental/clashapi/trafficontrol/manager.go
+index 6763436..14c23fb 100644
+--- a/experimental/clashapi/trafficontrol/manager.go
++++ b/experimental/clashapi/trafficontrol/manager.go
+@@ -45,6 +45,7 @@ type Manager struct {
+ 	memory                  uint64
+ 
+ 	eventSubscriber *observable.Subscriber[ConnectionEvent]
++	closedHook      func(metadata *TrackerMetadata)
+ }
+ 
+ func NewManager() *Manager {
+@@ -55,6 +56,13 @@ func (m *Manager) SetEventHook(subscriber *observable.Subscriber[ConnectionEvent
+ 	m.eventSubscriber = subscriber
+ }
+ 
++// SetClosedHook registers a callback invoked once for every connection that
++// leaves the manager, after the close bookkeeping. It runs on the goroutine
++// closing the connection, so implementations must not block.
++func (m *Manager) SetClosedHook(hook func(metadata *TrackerMetadata)) {
++	m.closedHook = hook
++}
++
+ func (m *Manager) Join(c Tracker) {
+ 	metadata := c.Metadata()
+ 	m.connections.Store(metadata.ID, c)
+@@ -88,6 +96,9 @@ func (m *Manager) Leave(c Tracker) {
+ 				ClosedAt: closedAt,
+ 			})
+ 		}
++		if m.closedHook != nil {
++			m.closedHook(&metadataCopy)
++		}
+ 	}
+ }
+ 
+diff --git a/option/experimental.go b/option/experimental.go
+index bf0df9e..797d96f 100644
+--- a/option/experimental.go
++++ b/option/experimental.go
+@@ -24,6 +24,7 @@ type ClashAPIOptions struct {
+ 	ExternalUIDownloadURL            string                     `json:"external_ui_download_url,omitempty"`
+ 	ExternalUIDownloadDetour         string                     `json:"external_ui_download_detour,omitempty"`
+ 	Secret                           string                     `json:"secret,omitempty"`
++	SiteLogPath                      string                     `json:"site_log_path,omitempty"`
+ 	DefaultMode                      string                     `json:"default_mode,omitempty"`
+ 	ModeList                         []string                   `json:"-"`
+ 	AccessControlAllowOrigin         badoption.Listable[string] `json:"access_control_allow_origin,omitempty"`

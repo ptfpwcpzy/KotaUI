@@ -24,7 +24,6 @@ import (
 )
 
 const (
-	pingInterval   = 2 * time.Minute
 	pingTimeout    = 2 * time.Second
 	pingSamples    = 2
 	pingHistoryTTL = 24 * time.Hour
@@ -183,15 +182,6 @@ func (m *pingManager) removeTarget(id string) {
 	tmp := m.path + ".tmp"
 	if err := os.WriteFile(tmp, body, 0600); err == nil {
 		_ = os.Rename(tmp, m.path)
-	}
-}
-
-func (a *App) networkQualityLoop() {
-	a.runPingChecks()
-	ticker := time.NewTicker(pingInterval)
-	defer ticker.Stop()
-	for range ticker.C {
-		a.runPingChecks()
 	}
 }
 

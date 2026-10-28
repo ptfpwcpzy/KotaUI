@@ -381,6 +381,9 @@ install_program(){
 	install -m 755 "$SOURCE_DIR/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
 	install -m 755 "$SOURCE_DIR/service/kota-autoupdate" "$BIN_DIR/kota-autoupdate"
 	install -m 755 "$SOURCE_DIR/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+	install -d -m 755 "$PREFIX/share/kotaui/patches"
+	rm -f "$PREFIX/share/kotaui/patches/"*.patch
+	install -m 644 "$SOURCE_DIR/service/patches/"*.patch "$PREFIX/share/kotaui/patches/"
 	install -m 755 "$SOURCE_DIR/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
   sub_ok "管理脚本已安装。"
   prepare_go_cache
@@ -414,11 +417,12 @@ EOF
 _install_services(){
   . /etc/os-release 2>/dev/null || true
   if [ "${ID:-}" = alpine ]; then
-    install -d -m 755 /etc/init.d /etc/conf.d /etc/periodic/6hourly /etc/periodic/daily
+    install -d -m 755 /etc/init.d /etc/conf.d /etc/periodic/daily
 	install -m 755 "$SOURCE_DIR/service/kotaui.openrc" /etc/init.d/kotaui
 	install -m 755 "$SOURCE_DIR/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
     printf 'KOTAUI_RUNTIME_ENV="%s/runtime.env"\n' "$DATA_DIR" > /etc/conf.d/kotaui
-    cp "$BIN_DIR/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew; chmod 700 /etc/periodic/6hourly/kota-cert-renew
+    rm -f /etc/periodic/6hourly/kota-cert-renew
+    cp "$BIN_DIR/kota-cert-renew" /etc/periodic/daily/kota-cert-renew; chmod 700 /etc/periodic/daily/kota-cert-renew
     cp "$BIN_DIR/kota-autoupdate" /etc/periodic/daily/kota-autoupdate; chmod 700 /etc/periodic/daily/kota-autoupdate
     rc-update add kotaui default >/dev/null 2>&1 || true; rc-update add kotaui-singbox default >/dev/null 2>&1 || true; rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
   else

@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
@@ -59,6 +60,7 @@ type App struct {
 	certificateRenewing bool
 	pings               *pingManager
 	backgroundOnce      sync.Once
+	pingRunning         atomic.Bool
 	startedAt           time.Time
 	sniProbe            sniProbeFunc
 	loginMu             sync.Mutex
@@ -138,6 +140,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/inbounds/", a.auth(a.inboundAction))
 	mux.HandleFunc("/api/clients", a.auth(a.clients))
 	mux.HandleFunc("/api/clients/", a.auth(a.clientAction))
+	mux.HandleFunc("/api/site-traffic", a.auth(a.siteTraffic))
 	mux.HandleFunc("/api/settings", a.auth(a.settings))
 	mux.HandleFunc("/api/settings/apply-status", a.auth(a.settingsApplyStatusHandler))
 	mux.HandleFunc("/api/reality/test", a.auth(a.sniTest))
@@ -176,10 +179,8 @@ func (a *App) Serve() error {
 
 func (a *App) startBackgroundTasks() {
 	a.backgroundOnce.Do(func() {
-		go a.syncTrafficLoop()
-		go a.networkQualityLoop()
+		go a.backgroundSchedulerLoop()
 		go a.removeUnusedDistroSingBox()
-		go a.relayRuleSetWatchLoop()
 	})
 }
 
@@ -198,44 +199,66 @@ func nextRelayRuleSetMarker(applied, marker string) (string, bool) {
 	return marker, true
 }
 
-// relayRuleSetWatchLoop 盯着 kota-autoupdate 写的规则集更新标记：标记变化且中转
-// 正在按分类走时，重启核心让新规则生效。标记不存在或面板刚启动时只记基线，不重启
-// （刚启动的核心本来就读到了最新的规则集文件）。
-func (a *App) relayRuleSetWatchLoop() {
-	var applied string
-	ticker := time.NewTicker(time.Minute)
+// backgroundSchedulerLoop 是面板唯一的常驻定时循环：15 秒一拍，每拍同步流量；
+// 每 4 拍（60 秒）盯一次中转规则集标记，每 8 拍（120 秒）测一次速；两者的拍次
+// 错开，互不撞到同一拍。测速单独起 goroutine 跑（带重叠保护），不阻塞流量同步。
+func (a *App) backgroundSchedulerLoop() {
+	a.syncTrafficStep()
+	a.dispatchPingChecks()
+	relayApplied := ""
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		state := a.store.Snapshot()
-		relay := state.Settings.Relay
-		if !relay.Enabled || relay.Role != "transit" || relay.Mode != "categories" {
-			continue
+	for tick := 1; ; tick++ {
+		<-ticker.C
+		a.syncTrafficStep()
+		if tick%4 == 2 {
+			relayApplied = a.relayRuleSetWatchStep(relayApplied)
 		}
-		body, err := os.ReadFile(filepath.Join(a.runtime.DataDir, "rule-sets", ".updated"))
-		if err != nil {
-			continue
-		}
-		marker := strings.TrimSpace(string(body))
-		next, changed := nextRelayRuleSetMarker(applied, marker)
-		applied = next
-		if !changed {
-			continue
-		}
-		if err := a.restartManagedSingBox(); err != nil {
-			log.Printf("中转规则集更新后核心重启失败：%v", err)
+		if tick%8 == 4 {
+			a.dispatchPingChecks()
 		}
 	}
 }
 
-func (a *App) syncTrafficLoop() {
+func (a *App) syncTrafficStep() {
 	a.syncTraffic()
 	a.recordDailyUsage(totalClientUsage(a.store.Snapshot()), time.Now())
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		a.syncTraffic()
-		a.recordDailyUsage(totalClientUsage(a.store.Snapshot()), time.Now())
+}
+
+// relayRuleSetWatchStep 是单拍的中转规则集盯梢：只在中转分类模式下盯
+// kota-autoupdate 写的更新标记，标记变化时重启核心；第一次见到标记只记基线不重启
+// （刚启动的核心本来就读到了最新的规则集文件）。
+func (a *App) relayRuleSetWatchStep(applied string) string {
+	state := a.store.Snapshot()
+	relay := state.Settings.Relay
+	if !relay.Enabled || relay.Role != "transit" || relay.Mode != "categories" {
+		return applied
 	}
+	body, err := os.ReadFile(filepath.Join(a.runtime.DataDir, "rule-sets", ".updated"))
+	if err != nil {
+		return applied
+	}
+	marker := strings.TrimSpace(string(body))
+	next, changed := nextRelayRuleSetMarker(applied, marker)
+	if !changed {
+		return next
+	}
+	if err := a.restartManagedSingBox(); err != nil {
+		log.Printf("中转规则集更新后核心重启失败：%v", err)
+	}
+	return next
+}
+
+// dispatchPingChecks 在后台测速：测速可能耗时（多目标 × 超时），不能阻塞流量
+// 同步；重叠保护避免上一轮还没跑完又起一轮。
+func (a *App) dispatchPingChecks() {
+	if !a.pingRunning.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer a.pingRunning.Store(false)
+		a.runPingChecks()
+	}()
 }
 
 func (a *App) ServeSubscription() error {
@@ -433,6 +456,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	a.resetMonth()
 	a.syncTraffic()
 	s := a.store.Snapshot()
+	aggregateSiteRecords(a.runtime.DataDir, s.Settings.Relay.Username, false)
 	active, totalUsed, monthlyUsed, monthlyDownload := 0, int64(0), int64(0), int64(0)
 	ports := make([]int, 0, len(s.Inbounds))
 	for _, inbound := range s.Inbounds {
@@ -477,6 +501,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"healthHints":         dashboardHints(s, certificate, services),
 		"dailyTraffic":        lastSevenDays(s, time.Now()),
 		"dailyTrafficByUser":  dailyTrafficByUser(s, time.Now()),
+		"liveSites":           liveSiteIcons(a.runtime.DataDir, a.runtime.StatsPort),
 	})
 }
 

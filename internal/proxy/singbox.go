@@ -102,19 +102,36 @@ func Write(state config.State, runtime config.Runtime) error {
 			outbounds = []map[string]any{directOutbound, relayOutbound}
 		}
 	}
+	dataDir := runtime.DataDir
+	if dataDir == "" {
+		dataDir = filepath.Dir(runtime.SingBoxConfig)
+	}
+	clashSecret, err := EnsureClashSecret(dataDir)
+	if err != nil {
+		return err
+	}
+	experimental := map[string]any{
+		"v2ray_api": map[string]any{
+			"listen": fmt.Sprintf("127.0.0.1:%d", runtime.StatsPort),
+			"stats":  map[string]any{"enabled": true, "users": statsUsers},
+		},
+		// clash_api 供两处用：仪表盘实时流量预览轮询活动连接，
+		// site_log_path 让打过补丁的核心在连接关闭时写一条记录，
+		// 面板据此做分用户、分网站的历史排行。
+		"clash_api": map[string]any{
+			"external_controller": fmt.Sprintf("127.0.0.1:%d", ClashPort(runtime.StatsPort)),
+			"secret":              clashSecret,
+			"site_log_path":       SiteRecordsPath(dataDir),
+		},
+	}
 	root := map[string]any{
 		// 只记录 error 级别且输出到 stderr：由 systemd-journald / OpenRC 统一收集并轮转，
 		// 避免在小磁盘 VPS 上因 info 级 access 日志无限增长写满磁盘。面板日志页读取的
 		// 正是服务 stdout/stderr（journalctl / /var/log/kotaui-singbox.log），不受影响。
-		"log":       map[string]any{"level": "error", "timestamp": true},
-		"inbounds":  inbounds,
-		"outbounds": outbounds,
-		"experimental": map[string]any{
-			"v2ray_api": map[string]any{
-				"listen": fmt.Sprintf("127.0.0.1:%d", runtime.StatsPort),
-				"stats":  map[string]any{"enabled": true, "users": statsUsers},
-			},
-		},
+		"log":          map[string]any{"level": "error", "timestamp": true},
+		"inbounds":     inbounds,
+		"outbounds":    outbounds,
+		"experimental": experimental,
 	}
 	categoryRules := relayCategoryRules(relay)
 	ruleSets, ruleSetRules := relayRuleSets(relay, runtime)

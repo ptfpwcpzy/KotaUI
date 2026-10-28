@@ -17,7 +17,10 @@ DESTINATION=${1:-/opt/kotaui/sing-box-v2ray}
 VERSION=${KOTAUI_SINGBOX_VERSION:-v1.13.18}
 SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git}
 # 集中维护运行协议与用户流量统计所需的 sing-box 编译能力；新增可选协议时只需在此补充对应标签。
-BUILD_TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic}
+# with_clash_api 是面板必需的：仪表盘实时流量预览和连接关闭记录都走它，
+# 即使用户覆盖了标签也要补上，否则新面板写出的配置在旧核心上无法启动。
+BUILD_TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-with_v2ray_api,with_utls,with_quic,with_clash_api}
+case ",$BUILD_TAGS," in *,with_clash_api,*) ;; *) BUILD_TAGS="$BUILD_TAGS,with_clash_api";; esac
 GO_BIN=${KOTAUI_GO_BIN:-go}
 prepare_go_cache
 # sing-box 源码体积不小；Alpine 的 /var/tmp 常为 tmpfs，clone 到内存盘可能写满。
@@ -37,6 +40,22 @@ if [ -n "${KOTAUI_SINGBOX_STATS_CORE:-}" ]; then
 else
   printf '正在构建带用户流量统计的 sing-box 兼容核心（%s）…\n' "$VERSION"
   git clone --depth=1 --branch "$VERSION" "$SOURCE_URL" "$WORKDIR/source" >/dev/null 2>&1
+  # KotaUI 补丁（service/patches/）：连接关闭时写网站排行记录。补丁打不上
+  # 就直接失败，绝不静默编一个没补丁的核心，否则面板写出的配置无法校验。
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  PATCH_DIR=${KOTAUI_SINGBOX_PATCH_DIR:-}
+  if [ -z "$PATCH_DIR" ]; then
+    if [ -d "$SCRIPT_DIR/patches" ]; then PATCH_DIR="$SCRIPT_DIR/patches";
+    elif [ -d "$SCRIPT_DIR/../share/kotaui/patches" ]; then PATCH_DIR="$SCRIPT_DIR/../share/kotaui/patches";
+    fi
+  fi
+  if [ -z "$PATCH_DIR" ] || [ ! -d "$PATCH_DIR" ]; then
+    printf '%s\n' '未找到 KotaUI 补丁目录，无法构建带网站排行记录的核心。' >&2
+    exit 1
+  fi
+  if ls "$PATCH_DIR"/*.patch >/dev/null 2>&1; then
+    (cd "$WORKDIR/source" && git apply "$PATCH_DIR"/*.patch)
+  fi
 	(cd "$WORKDIR/source" && GOMAXPROCS=1 CGO_ENABLED=0 "$GO_BIN" build -tags "$BUILD_TAGS" -trimpath -ldflags='-s -w' -o "$CANDIDATE" ./cmd/sing-box)
 fi
 
@@ -47,6 +66,11 @@ cat > "$CHECK_CONFIG" <<'EOF'
     "v2ray_api": {
       "listen": "127.0.0.1:19090",
       "stats": {"enabled": true, "users": ["kotaui-check"]}
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:19091",
+      "secret": "kotaui-check",
+      "site_log_path": "/tmp/kotaui-check-records.jsonl"
     }
   },
   "inbounds": [],

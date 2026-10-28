@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
+	"github.com/ptfpwcpzy/KotaUI/internal/proxy"
 )
 
 func validateClientInput(client config.Client) error {
@@ -57,6 +58,7 @@ func reservedServicePorts(runtime config.Runtime) map[int]string {
 	}
 	if runtime.StatsPort > 0 {
 		ports[runtime.StatsPort] = "流量统计"
+		ports[proxy.ClashPort(runtime.StatsPort)] = "实时流量预览"
 	}
 	if _, port, err := net.SplitHostPort(runtime.Listen); err == nil {
 		if value, convErr := strconv.Atoi(port); convErr == nil {

@@ -260,6 +260,9 @@ do_update(){
   install -m 755 "$source/service/kota-cert-renew" "$BIN_DIR/kota-cert-renew"
   install -m 755 "$source/service/kota-autoupdate" "$BIN_DIR/kota-autoupdate"
   install -m 755 "$source/service/kota-build-singbox-stats" "$PREFIX/bin/kota-build-singbox-stats"
+  install -d -m 755 "$PREFIX/share/kotaui/patches"
+  rm -f "$PREFIX/share/kotaui/patches/"*.patch
+  install -m 644 "$source/service/patches/"*.patch "$PREFIX/share/kotaui/patches/"
   install -m 755 "$source/service/kotaui-wait-singbox-config" /usr/local/lib/kotaui/kotaui-wait-singbox-config
   sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
   if grep -q '^KOTAUI_GO_BIN=' "$RUNTIME_ENV"; then sed -i "s|^KOTAUI_GO_BIN=.*|KOTAUI_GO_BIN=$GO_BIN|" "$RUNTIME_ENV"; else printf 'KOTAUI_GO_BIN=%s\n' "$GO_BIN" >> "$RUNTIME_ENV"; fi
@@ -279,7 +282,9 @@ do_update(){
     install -m 755 "$source/service/kotaui-singbox.openrc" /etc/init.d/kotaui-singbox
     install -d -m 755 /etc/conf.d
     printf 'KOTAUI_RUNTIME_ENV="%s/runtime.env"\n' "$DATA_DIR" > /etc/conf.d/kotaui
-    install -m 755 "$source/service/kota-cert-renew" /etc/periodic/6hourly/kota-cert-renew
+    # 证书续签与自动更新统一为每天一次的维护任务；删掉旧的 6 小时路径，避免新老并存。
+    rm -f /etc/periodic/6hourly/kota-cert-renew
+    install -m 755 "$source/service/kota-cert-renew" /etc/periodic/daily/kota-cert-renew
     install -m 755 "$source/service/kota-autoupdate" /etc/periodic/daily/kota-autoupdate
     rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
   fi
@@ -317,7 +322,7 @@ EOF
   else
     rc-update del kotaui default >/dev/null 2>&1 || true
     rc-update del kotaui-singbox default >/dev/null 2>&1 || true
-    rm -f /etc/init.d/kotaui /etc/init.d/kotaui-singbox /etc/conf.d/kotaui /etc/periodic/6hourly/kota-cert-renew /etc/periodic/daily/kota-autoupdate
+    rm -f /etc/init.d/kotaui /etc/init.d/kotaui-singbox /etc/conf.d/kotaui /etc/periodic/6hourly/kota-cert-renew /etc/periodic/daily/kota-cert-renew /etc/periodic/daily/kota-autoupdate
   fi
   remove_kotaui_certificate
   rm -rf "$PREFIX" "$DATA_DIR"
