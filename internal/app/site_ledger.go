@@ -130,7 +130,7 @@ var siteServices = []siteService{
 	{[]string{"huggingface.co"}, "huggingface", "Hugging Face", "huggingface.co", "huggingface"},
 	{[]string{"cohere.com"}, "cohere", "Cohere", "cohere.com", "cohere"},
 	{[]string{"cursor.com"}, "cursor", "Cursor", "cursor.com", "cursor"},
-	{[]string{"meta.ai", "meta.com"}, "meta", "Meta AI", "meta.ai", "meta"},
+	{[]string{"meta.ai", "meta.com", "metaaivm.com"}, "meta", "Meta AI", "meta.ai", "meta"},
 	{[]string{"copilot.microsoft.com"}, "copilot", "Copilot", "copilot.microsoft.com", "copilot"},
 	{[]string{"suno.com"}, "suno", "Suno", "suno.com", "suno"},
 	{[]string{"elevenlabs.io"}, "elevenlabs", "ElevenLabs", "elevenlabs.io", "elevenlabs"},
