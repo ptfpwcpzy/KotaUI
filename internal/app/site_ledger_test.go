@@ -76,6 +76,70 @@ func TestMapSiteHost(t *testing.T) {
 		{"i.pinimg.com", "pinterest", "Pinterest"},
 		{"hbo.com", "hbomax", "HBO Max"},
 		{"spoti.fi", "spotify", "Spotify"},
+		{"ei.phncdn.com", "pornhub", "Pornhub"},
+		{"cdn1a.image.pornhub.phncdn.com", "pornhub", "Pornhub"},
+		{"phprcdn.com", "pornhub", "Pornhub"},
+		{"pornhubpremium.com", "pornhub", "Pornhub"},
+		{"chromium.googlesource.com", "google", "Google"},
+		{"connect.facebook.net", "facebook", "Facebook"},
+		{"fb.watch", "facebook", "Facebook"},
+		{"fb.me", "facebook", "Facebook"},
+		{"fb.gg", "facebook", "Facebook"},
+		{"instagr.am", "instagram", "Instagram"},
+		{"telegram.me", "telegram", "Telegram"},
+		{"cdn5.telesco.pe", "telegram", "Telegram"},
+		{"tiktokshop.com", "tiktok", "TikTok"},
+		{"windows.com", "microsoft", "Microsoft"},
+		{"microsoft365.com", "microsoft", "Microsoft"},
+		{"hotmail.com", "microsoft", "Microsoft"},
+		{"onedrive.com", "microsoft", "Microsoft"},
+		{"azure.com", "microsoft", "Microsoft"},
+		{"visualstudio.com", "microsoft", "Microsoft"},
+		{"gallerycdn.vsassets.io", "microsoft", "Microsoft"},
+		{"m.media-amazon.com", "amazon", "Amazon"},
+		{"aiv-cdn.net", "prime", "Prime Video"},
+		{"githubassets.com", "github", "GitHub"},
+		{"oaiusercontent.com", "openai", "OpenAI"},
+		{"twitch.com", "twitch", "Twitch"},
+		{"snap.com", "snapchat", "Snapchat"},
+		{"huluim.com", "hulu", "Hulu"},
+		{"cdn.sstatic.net", "stackoverflow", "Stack Overflow"},
+		{"vimeocdn.com", "vimeo", "Vimeo"},
+		{"dmcdn.net", "dailymotion", "Dailymotion"},
+		{"cf-media.sndcdn.com", "soundcloud", "SoundCloud"},
+		{"rbxcdn.com", "roblox", "Roblox"},
+		{"nintendo.net", "nintendo", "Nintendo"},
+		{"media.licdn.com", "linkedin", "LinkedIn"},
+		{"xboxlive.com", "xbox", "Xbox"},
+		{"playstation.net", "playstation", "PlayStation"},
+		{"tiktokcdn-us.com", "tiktok", "TikTok"},
+		{"tiktokcdn-eu.com", "tiktok", "TikTok"},
+		{"ttlivecdn.com", "tiktok", "TikTok"},
+		{"spotifycdn.com", "spotify", "Spotify"},
+		{"spotify.link", "spotify", "Spotify"},
+		{"ai.studio", "google", "Google"},
+		{"deepmind.com", "google", "Google"},
+		{"gemini.google", "google", "Google"},
+		{"notebooklm.google", "google", "Google"},
+		{"nflximg.com", "netflix", "Netflix"},
+		{"fragment.com", "telegram", "Telegram"},
+		{"ton.org", "telegram", "Telegram"},
+		{"cdn-telegram.org", "telegram", "Telegram"},
+		{"ggpht.cn", "youtube", "YouTube"},
+		{"yt.be", "youtube", "YouTube"},
+		{"youtubekids.com", "youtube", "YouTube"},
+		{"pornhub-deutsch.net", "pornhub", "Pornhub"},
+		{"pornhub.org", "pornhub", "Pornhub"},
+		{"amazonaws.cn", "aws", "AWS"},
+		{"amazoncognito.com", "aws", "AWS"},
+		{"pv-cdn.net", "prime", "Prime Video"},
+		{"primevideo.cc", "prime", "Prime Video"},
+		{"boxofficemojo.com", "imdb", "IMDb"},
+		{"huluplus.com", "hulu", "Hulu"},
+		{"doom.com", "bethesda", "Bethesda"},
+		{"origin.tv", "origin", "Origin"},
+		{"eastore.com", "ea", "EA"},
+		{"metabora.io", "kakao", "KakaoTalk"},
 		{"", "unknown", ""},
 	}
 	for _, tc := range cases {
@@ -501,5 +565,20 @@ func TestSiteRecordsTruncation(t *testing.T) {
 	}
 	if strings.TrimSpace(string(raw)) != "0" {
 		t.Fatalf("offset after truncation = %q, want 0", raw)
+	}
+}
+
+func TestSiteSuffixesWellFormed(t *testing.T) {
+	for _, svc := range siteServices {
+		for _, suffix := range svc.suffixes {
+			if suffix == "" || suffix != strings.ToLower(suffix) || strings.ContainsAny(suffix, " @") || !strings.Contains(suffix, ".") || strings.HasPrefix(suffix, ".") || strings.HasSuffix(suffix, ".") {
+				t.Errorf("service %s has malformed suffix %q", svc.id, suffix)
+			}
+			for _, label := range strings.Split(suffix, ".") {
+				if label == "" {
+					t.Errorf("service %s has empty label in suffix %q", svc.id, suffix)
+				}
+			}
+		}
 	}
 }
