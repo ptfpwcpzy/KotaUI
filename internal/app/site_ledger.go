@@ -363,8 +363,9 @@ func baseDomain(host string) string {
 }
 
 // isOwnDomain 判断连接域名是不是本机域名：主机在安装时绑定的域名
-// （Settings.Domain）本身及其子域名都算本机流量，排行里排除；同主域名的
-// 其他子域名（例如同一域名下的另一台服务器）不算，不排除。
+// （Settings.Domain）所在的主域名家族都算本机流量，排行里排除——
+// 绑定域名本身、它的子域名、同主域名下的其他子域名（同一域名下的
+// 其他服务器）都排，因为整域名都是本机的。
 func isOwnDomain(host, ownDomain string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
 	host = strings.TrimSuffix(host, ".")
@@ -373,7 +374,7 @@ func isOwnDomain(host, ownDomain string) bool {
 	if host == "" || ownDomain == "" {
 		return false
 	}
-	return host == ownDomain || strings.HasSuffix(host, "."+ownDomain)
+	return baseDomain(host) == baseDomain(ownDomain)
 }
 
 // mapSiteHost 把连接域名归到服务：返回服务 id；未映射的域名返回以主域名为
@@ -664,9 +665,16 @@ func buildSiteRanking(ledger *daySiteLedger, username, ownDomain string) siteRan
 	}
 	// 先按展示键归并：旧账本里按完整域名存的行，按当前服务表重归并，
 	// 同主域名的子域名、以及新旧两种键，合并成同一行。
+	// 未知域名（空主机）不成行，直接计入其余合计；本机域名行同样排除。
 	merged := map[string]*siteTotals{}
+	otherCount, otherBytes := 0, int64(0)
 	for key, totals := range userServices {
 		if totals == nil || totals.bytes() == 0 {
+			continue
+		}
+		if key == "unknown" {
+			otherCount++
+			otherBytes += totals.bytes()
 			continue
 		}
 		displayKey := key
@@ -703,6 +711,8 @@ func buildSiteRanking(ledger *daySiteLedger, username, ownDomain string) siteRan
 		}
 		ranking.Sites = append(ranking.Sites, siteRowFor(row.key, row.totals))
 	}
+	ranking.OtherCount += otherCount
+	ranking.OtherBytes += otherBytes
 	return ranking
 }
 

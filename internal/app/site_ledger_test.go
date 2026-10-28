@@ -113,8 +113,10 @@ func TestIsOwnDomain(t *testing.T) {
 	}{
 		{"vmiss3.5224210.xyz", "vmiss3.5224210.xyz", true},
 		{"a.vmiss3.5224210.xyz", "vmiss3.5224210.xyz", true},
-		{"zouter.5224210.xyz", "vmiss3.5224210.xyz", false},
-		{"5224210.xyz", "vmiss3.5224210.xyz", false},
+		{"zouter.5224210.xyz", "vmiss3.5224210.xyz", true},
+		{"5224210.xyz", "vmiss3.5224210.xyz", true},
+		{"a.b.5224210.xyz", "vmiss3.5224210.xyz", true},
+		{"example.com", "vmiss3.5224210.xyz", false},
 		{"VMISS3.5224210.XYZ", "vmiss3.5224210.xyz", true},
 		{"103.97.200.102", "103.97.200.102", true},
 		{"anything.example", "", false},
@@ -137,7 +139,7 @@ func TestOwnDomainExcluded(t *testing.T) {
 		body, _ := json.Marshal(siteRecord{User: user, Host: host, Upload: up, Download: down, Start: noon.Unix(), End: noon.Add(time.Minute).Unix()})
 		return string(body) + "\n"
 	}
-	// 本机域名本身、它的子域名都不入账；同主域名的另一台服务器照常入账。
+	// 本机域名家族都不入账：绑定域名本身、它的子域名、同主域名下的其他服务器。
 	content := record("alice", "vmiss3.5224210.xyz", 100, 100)
 	content += record("alice", "a.vmiss3.5224210.xyz", 100, 100)
 	content += record("alice", "zouter.5224210.xyz", 10, 20)
@@ -146,22 +148,38 @@ func TestOwnDomainExcluded(t *testing.T) {
 	aggregateSiteRecords(dir, "", "vmiss3.5224210.xyz", true)
 	ledger := readDayLedger(t, dir, today)
 	alice := ledger.Services["alice"]
-	if len(alice) != 2 {
-		t.Fatalf("alice keys = %v, want only zouter + youtube", alice)
-	}
-	if alice["domain:5224210.xyz"] == nil || alice["domain:5224210.xyz"].bytes() != 30 {
-		t.Fatalf("zouter must stay, got %+v", alice["domain:5224210.xyz"])
+	if len(alice) != 1 || alice["youtube"] == nil || alice["youtube"].bytes() != 100 {
+		t.Fatalf("alice keys = %v, want only youtube", alice)
 	}
 	// 已入账的旧账本里，本机域名行在展示时也要排除，且不计入其余合计。
-	ledger.Services["alice"]["domain:vmiss3.5224210.xyz"] = &siteTotals{Upload: 500, Download: 500}
+	ledger.Services["alice"]["domain:zouter.5224210.xyz"] = &siteTotals{Upload: 500, Download: 500}
 	ranking := buildSiteRanking(ledger, "alice", "vmiss3.5224210.xyz")
-	for _, row := range ranking.Sites {
-		if row.Domain == "vmiss3.5224210.xyz" || row.Name == "vmiss3.5224210.xyz" {
-			t.Fatalf("own domain must not be displayed, got %+v", row)
-		}
+	if len(ranking.Sites) != 1 || ranking.Sites[0].Name != "YouTube" {
+		t.Fatalf("sites = %+v, want only YouTube", ranking.Sites)
 	}
 	if ranking.OtherBytes != 0 || ranking.OtherCount != 0 {
-		t.Fatalf("other = %d/%d, want 0/0 (own domain excluded, rest all in top 10)", ranking.OtherCount, ranking.OtherBytes)
+		t.Fatalf("other = %d/%d, want 0/0", ranking.OtherCount, ranking.OtherBytes)
+	}
+}
+
+func TestUnknownFoldedIntoOther(t *testing.T) {
+	ledger := newDaySiteLedger("2026-10-28")
+	ledger.Services["usa"] = map[string]*siteTotals{
+		"unknown":            {Upload: 500, Download: 500},
+		"youtube":            {Upload: 50, Download: 50},
+		"domain:example.com": {Upload: 25, Download: 25},
+	}
+	ranking := buildSiteRanking(ledger, "usa", "")
+	if len(ranking.Sites) != 2 {
+		t.Fatalf("sites = %+v, want youtube + example.com", ranking.Sites)
+	}
+	for _, row := range ranking.Sites {
+		if row.Name == "未知域名" {
+			t.Fatalf("unknown must not be a row, got %+v", row)
+		}
+	}
+	if ranking.OtherCount != 1 || ranking.OtherBytes != 1000 {
+		t.Fatalf("other = %d/%d, want 1/1000", ranking.OtherCount, ranking.OtherBytes)
 	}
 }
 
