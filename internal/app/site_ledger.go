@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,7 @@ import (
 type siteRecord struct {
 	User     string `json:"user"`
 	Host     string `json:"host"`
+	Dst      string `json:"dst"`
 	Upload   int64  `json:"upload"`
 	Download int64  `json:"download"`
 	Start    int64  `json:"start"`
@@ -392,6 +394,52 @@ func mapSiteHost(host string) (key string, service *siteService) {
 	return "domain:" + baseDomain(host), nil
 }
 
+// serviceIPRanges 是各服务商公开的自有网络 IP 段：只有域名为空的直连 IP
+// 连接才按 IP 段归类（域名优先，IP 只补域名不存在的情况）。只收自有网络、
+// 不会混进第三方流量的段；云厂商共享段（AWS、Azure、谷歌云、Cloudflare
+// 等）故意不收，否则第三方站点会被错归到云厂商名下。
+var serviceIPRanges = map[string][]string{
+	"telegram": {
+		"149.154.164.0/22", "149.154.168.0/22", "149.154.172.0/22",
+		"91.108.12.0/22", "91.108.16.0/22", "91.108.56.0/22",
+		"91.105.192.0/24",
+		"2001:b28:f23d::/48", "2001:b28:f23f::/48", "2001:67c:4e8::/48",
+	},
+	"apple": {"17.0.0.0/8"},
+}
+
+// serviceIPRangeOrder 固定 IP 段的匹配顺序（各服务段互不重叠，顺序只为确定性）。
+var serviceIPRangeOrder = []string{"telegram", "apple"}
+
+var serviceIPNets = func() map[string][]netip.Prefix {
+	nets := make(map[string][]netip.Prefix, len(serviceIPRanges))
+	for id, ranges := range serviceIPRanges {
+		for _, r := range ranges {
+			if prefix, err := netip.ParsePrefix(r); err == nil {
+				nets[id] = append(nets[id], prefix)
+			}
+		}
+	}
+	return nets
+}()
+
+// mapSiteIP 按目标 IP 段归到服务；不在任何段里返回 nil。
+func mapSiteIP(dst string) *siteService {
+	addr, err := netip.ParseAddr(strings.TrimSpace(dst))
+	if err != nil || !addr.IsValid() {
+		return nil
+	}
+	addr = addr.Unmap()
+	for _, id := range serviceIPRangeOrder {
+		for _, prefix := range serviceIPNets[id] {
+			if prefix.Contains(addr) {
+				return siteServiceByID(id)
+			}
+		}
+	}
+	return nil
+}
+
 func siteServiceByID(id string) *siteService {
 	for i := range siteServices {
 		if siteServices[i].id == id {
@@ -535,6 +583,11 @@ func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time
 		}
 		for _, record := range records {
 			key, _ := mapSiteHost(record.Host)
+			if record.Host == "" {
+				if service := mapSiteIP(record.Dst); service != nil {
+					key = service.id
+				}
+			}
 			userServices := ledger.Services[record.User]
 			if userServices == nil {
 				userServices = map[string]*siteTotals{}
@@ -755,7 +808,8 @@ func liveSiteIcons(dataDir string, statsPort int) []string {
 	var snapshot struct {
 		Connections []struct {
 			Metadata struct {
-				Host string `json:"host"`
+				Host          string `json:"host"`
+				DestinationIP string `json:"destinationIP"`
 			} `json:"metadata"`
 		} `json:"connections"`
 	}
@@ -765,10 +819,16 @@ func liveSiteIcons(dataDir string, statsPort int) []string {
 	seen := map[string]bool{}
 	for _, connection := range snapshot.Connections {
 		host := strings.TrimSpace(connection.Metadata.Host)
-		if host == "" {
-			continue
+		var service *siteService
+		if host != "" {
+			_, service = mapSiteHost(host)
+		} else {
+			// 域名为空的直连 IP 连接：按 IP 段认，认不出照旧跳过。
+			service = mapSiteIP(connection.Metadata.DestinationIP)
+			if service == nil {
+				continue
+			}
 		}
-		_, service := mapSiteHost(host)
 		icon := "un"
 		if service != nil {
 			icon = service.icon

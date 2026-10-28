@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -88,6 +89,58 @@ func TestMapSiteHost(t *testing.T) {
 		}
 		if name != tc.service {
 			t.Errorf("mapSiteHost(%q) service = %q, want %q", tc.host, name, tc.service)
+		}
+	}
+}
+
+func TestMapSiteIP(t *testing.T) {
+	cases := []struct {
+		dst     string
+		service string
+	}{
+		{"149.154.167.51", "telegram"},
+		{"149.154.175.53", "telegram"},
+		{"149.154.175.100", "telegram"},
+		{"149.154.167.91", "telegram"},
+		{"149.154.164.250", "telegram"},
+		{"149.154.171.5", "telegram"},
+		{"91.108.56.130", "telegram"},
+		{"91.105.192.100", "telegram"},
+		{"2001:b28:f23d:f002::a", "telegram"},
+		{"2001:67c:4e8:f004::a", "telegram"},
+		{"::ffff:149.154.167.51", "telegram"},
+		{"17.1.2.3", "apple"},
+		{"17.254.0.1", "apple"},
+		{"8.8.8.8", ""},
+		{"1.1.1.1", ""},
+		{"103.97.200.102", ""},
+		{"", ""},
+		{"not-an-ip", ""},
+	}
+	for _, tc := range cases {
+		service := mapSiteIP(tc.dst)
+		name := ""
+		if service != nil {
+			name = service.id
+		}
+		if name != tc.service {
+			t.Errorf("mapSiteIP(%q) = %q, want %q", tc.dst, name, tc.service)
+		}
+	}
+}
+
+func TestServiceIPRangesValid(t *testing.T) {
+	for id, ranges := range serviceIPRanges {
+		if siteServiceByID(id) == nil {
+			t.Errorf("IP range service %q not in siteServices", id)
+		}
+		for _, r := range ranges {
+			if _, err := netip.ParsePrefix(r); err != nil {
+				t.Errorf("service %q range %q does not parse: %v", id, r, err)
+			}
+		}
+		if len(serviceIPNets[id]) != len(ranges) {
+			t.Errorf("service %q parsed %d of %d ranges", id, len(serviceIPNets[id]), len(ranges))
 		}
 	}
 }
@@ -301,6 +354,41 @@ func TestAggregateSiteRecords(t *testing.T) {
 	}
 }
 
+func TestAggregateSiteRecordsIP(t *testing.T) {
+	siteLastAggregate = time.Time{}
+	siteLastCleanup = time.Time{}
+	dir := t.TempDir()
+	today := time.Now().Format("2006-01-02")
+	noon := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Local)
+	record := func(user, host, dst string, up, down int64) string {
+		body, _ := json.Marshal(siteRecord{User: user, Host: host, Dst: dst, Upload: up, Download: down, Start: noon.Unix(), End: noon.Add(10 * time.Minute).Unix()})
+		return string(body) + "\n"
+	}
+	content := record("alice", "", "149.154.167.51", 100, 900)
+	content += record("alice", "", "17.1.2.3", 50, 50)
+	content += record("bob", "", "8.8.8.8", 10, 20)
+	content += record("carol", "youtube.com", "149.154.167.51", 70, 30)
+	writeSiteRecords(t, dir, content)
+	aggregateSiteRecords(dir, "relay-abc", "", true)
+	ledger := readDayLedger(t, dir, today)
+	if ledger.Services["alice"]["telegram"] == nil || ledger.Services["alice"]["telegram"].bytes() != 1000 {
+		t.Fatalf("alice telegram = %+v, want 1000 bytes", ledger.Services["alice"]["telegram"])
+	}
+	if ledger.Services["alice"]["apple"] == nil || ledger.Services["alice"]["apple"].bytes() != 100 {
+		t.Fatalf("alice apple = %+v, want 100 bytes", ledger.Services["alice"]["apple"])
+	}
+	if ledger.Services["bob"]["unknown"] == nil || ledger.Services["bob"]["unknown"].bytes() != 30 {
+		t.Fatalf("bob unknown = %+v, want 30 bytes", ledger.Services["bob"]["unknown"])
+	}
+	// 域名在时域名优先，目标 IP 不改道。
+	if ledger.Services["carol"]["youtube"] == nil || ledger.Services["carol"]["youtube"].bytes() != 100 {
+		t.Fatalf("carol youtube = %+v, want 100 bytes", ledger.Services["carol"]["youtube"])
+	}
+	if ledger.Services["carol"]["telegram"] != nil {
+		t.Fatalf("carol telegram must be empty when host is present, got %+v", ledger.Services["carol"]["telegram"])
+	}
+}
+
 func TestBuildSiteRanking(t *testing.T) {
 	ledger := newDaySiteLedger("2026-10-28")
 	ledger.Services["alice"] = map[string]*siteTotals{}
@@ -368,7 +456,8 @@ func TestLiveSiteIcons(t *testing.T) {
 			{"metadata":{"host":"youtube.com"}},
 			{"metadata":{"host":"googlevideo.com"}},
 			{"metadata":{"host":"unknown.example"}},
-			{"metadata":{"host":""}}
+			{"metadata":{"host":""}},
+			{"metadata":{"host":"","destinationIP":"149.154.167.51"}}
 		]}`))
 	}))
 	defer server.Close()
@@ -378,8 +467,8 @@ func TestLiveSiteIcons(t *testing.T) {
 		t.Fatal(err)
 	}
 	icons := liveSiteIcons(dir, port-1)
-	if len(icons) != 2 || icons[0] != "youtube" || icons[1] != "un" {
-		t.Fatalf("icons = %v, want [youtube un]", icons)
+	if len(icons) != 3 || icons[0] != "youtube" || icons[1] != "un" || icons[2] != "telegram" {
+		t.Fatalf("icons = %v, want [youtube un telegram]", icons)
 	}
 	// 核心没起时返回空，不报错。
 	if icons := liveSiteIcons(dir, 59998); len(icons) != 0 {

@@ -21,7 +21,7 @@ new file mode 100644
 index 0000000..baa34c5
 --- /dev/null
 +++ b/experimental/clashapi/site_log.go
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,98 @@
 +package clashapi
 +
 +import (
@@ -37,9 +37,12 @@ index 0000000..baa34c5
 +// siteLogRecord is one line of the connection close log tailed by the panel.
 +// Start and End are Unix seconds; Duration is End minus Start. Host is empty
 +// when the connection carried no domain (IP literal or unsniffed traffic).
++// Dst is the destination IP when known; the panel maps it to a service only
++// when Host is empty.
 +type siteLogRecord struct {
 +	User     string `json:"user"`
 +	Host     string `json:"host"`
++	Dst      string `json:"dst"`
 +	Upload   int64  `json:"upload"`
 +	Download int64  `json:"download"`
 +	Start    int64  `json:"start"`
@@ -84,9 +87,14 @@ index 0000000..baa34c5
 +	if host == "" {
 +		host = metadata.Metadata.Destination.Fqdn
 +	}
++	dst := ""
++	if metadata.Metadata.Destination.Addr.IsValid() {
++		dst = metadata.Metadata.Destination.Addr.String()
++	}
 +	record, err := json.Marshal(siteLogRecord{
 +		User:     user,
 +		Host:     host,
++		Dst:      dst,
 +		Upload:   upload,
 +		Download: download,
 +		Start:    metadata.CreatedAt.Unix(),
