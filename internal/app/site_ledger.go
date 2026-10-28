@@ -90,7 +90,7 @@ var siteServices = []siteService{
 	{[]string{"primevideo.com", "amazonvideo.com", "aiv-cdn.net", "amazonprimevideo.cn", "amazonprimevideo.com.cn", "amazonprimevideos.com", "amazonvideo.cc", "prime-video.com", "primevideo.cc", "primevideo.info", "primevideo.org", "primevideo.tv", "pv-cdn.net"}, "prime", "Prime Video", "primevideo.com", "prime"},
 	{[]string{"peacocktv.com"}, "peacock", "Peacock", "peacocktv.com", "peacock"},
 	{[]string{"pluto.tv", "plutotv.net"}, "plutotv", "Pluto TV", "pluto.tv", "plutotv"},
-	{[]string{"pornhub.com", "phncdn.com", "phprcdn.com", "pornhubpremium.com", "porngub.com", "pornhub-deutsch.net", "pornhub.org", "pornhubapparel.com"}, "pornhub", "Pornhub", "pornhub.com", "pornhub"},
+	{[]string{"pornhub.com", "phncdn.com", "phprcdn.com", "pornhubpremium.com", "porngub.com", "pornhub-deutsch.net", "pornhub.org", "pornhubapparel.com", "trafficjunky.com", "trafficjunky.net"}, "pornhub", "Pornhub", "pornhub.com", "pornhub"},
 	{[]string{"xvideos.com", "xv-ru.com", "xvideos-ar.com", "xvideos-cdn.com", "xvideos-india.com"}, "xvideos", "XVideos", "xvideos.com", "xvideos"},
 	{[]string{"xnxx.com", "xnxx-cdn.com", "xnxx.net", "xnxx.tv", "xnxx3.com"}, "xnxx", "XNXX", "xnxx.com", "xnxx"},
 	{[]string{"redtube.com", "livehdcams.com", "rdtcdn.com", "redtube.com.br", "redtubepremium.com"}, "redtube", "RedTube", "redtube.com", "redtube"},
@@ -328,6 +328,8 @@ var siteServices = []siteService{
 	{[]string{"fiverr.com"}, "fiverr", "Fiverr", "fiverr.com", "fiverr"},
 	{[]string{"upwork.com"}, "upwork", "Upwork", "upwork.com", "upwork"},
 	{[]string{"deepl.com"}, "deepl", "DeepL", "deepl.com", "deepl"},
+	{[]string{"xhamster.com", "xhcdn.com", "cdn13.com"}, "xhamster", "xHamster", "xhamster.com", "xhamster"},
+	{[]string{"nodeseek.com"}, "nodeseek", "NodeSeek", "nodeseek.com", "nodeseek"},
 }
 
 // siteSuffixMap 是后缀到服务的查表。后缀唯一性由 TestSiteSuffixesUnique 保证，

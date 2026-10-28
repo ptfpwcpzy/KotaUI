@@ -140,6 +140,14 @@ func TestMapSiteHost(t *testing.T) {
 		{"origin.tv", "origin", "Origin"},
 		{"eastore.com", "ea", "EA"},
 		{"metabora.io", "kakao", "KakaoTalk"},
+		{"xhcdn.com", "xhamster", "xHamster"},
+		{"static-ec.xhcdn.com", "xhamster", "xHamster"},
+		{"xhamster.com", "xhamster", "xHamster"},
+		{"cdn13.com", "xhamster", "xHamster"},
+		{"trafficjunky.net", "pornhub", "Pornhub"},
+		{"trafficjunky.com", "pornhub", "Pornhub"},
+		{"nodeseek.com", "nodeseek", "NodeSeek"},
+		{"www.nodeseek.com", "nodeseek", "NodeSeek"},
 		{"", "unknown", ""},
 	}
 	for _, tc := range cases {
