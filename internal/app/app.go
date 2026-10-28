@@ -1,6 +1,7 @@
 package app
 
 import (
+	"compress/gzip"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -287,10 +288,27 @@ func (a *App) subscriptionHandler() http.Handler {
 	return mux
 }
 
-func (a *App) panel(w http.ResponseWriter, _ *http.Request) {
+// writeStaticBody 输出面板静态内容：浏览器接受 gzip 时压缩传输（图片
+// 本身已压缩，不再压）；不接受 gzip 的客户端原样输出。只影响传输，
+// 不改内容与缓存语义。
+func writeStaticBody(w http.ResponseWriter, r *http.Request, body []byte, contentType string) {
+	w.Header().Set("content-type", contentType)
+	if r == nil || r.Method != http.MethodGet ||
+		!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") ||
+		strings.HasPrefix(contentType, "image/") {
+		_, _ = w.Write(body)
+		return
+	}
+	w.Header().Set("Vary", "Accept-Encoding")
+	w.Header().Set("content-encoding", "gzip")
+	gz := gzip.NewWriter(w)
+	_, _ = gz.Write(body)
+	_ = gz.Close()
+}
+
+func (a *App) panel(w http.ResponseWriter, r *http.Request) {
 	body, _ := files.ReadFile("web/index.html")
-	w.Header().Set("content-type", "text/html; charset=utf-8")
-	_, _ = w.Write(body)
+	writeStaticBody(w, r, body, "text/html; charset=utf-8")
 }
 
 func subscriptionBrandLogo(page string) string {
@@ -302,15 +320,14 @@ func subscriptionBrandLogo(page string) string {
 }
 
 func embeddedAsset(name, contentType string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := files.ReadFile(name)
 		if err != nil {
 			http.NotFound(w, nil)
 			return
 		}
-		w.Header().Set("content-type", contentType)
 		w.Header().Set("cache-control", "no-store")
-		_, _ = w.Write(body)
+		writeStaticBody(w, r, body, contentType)
 	}
 }
 func (a *App) health(w http.ResponseWriter, _ *http.Request) {

@@ -24,7 +24,7 @@ func TestMapSiteHost(t *testing.T) {
 		{"googlevideo.com", "youtube", "YouTube"},
 		{"tv.apple.com", "appletv", "Apple TV+"},
 		{"apple.com", "apple", "Apple"},
-		{"drive.google.com", "google", "Google"},
+		{"drive.google.com", "googledrive", "Google Drive"},
 		{"YouTube.COM", "youtube", "YouTube"},
 		{"unknown.example", "domain:unknown.example", ""},
 		{"", "unknown", ""},
@@ -207,8 +207,8 @@ func TestLiveSiteIcons(t *testing.T) {
 		t.Fatal(err)
 	}
 	icons := liveSiteIcons(dir, port-1)
-	if len(icons) != 2 || icons[0] != "yt" || icons[1] != "un" {
-		t.Fatalf("icons = %v, want [yt un]", icons)
+	if len(icons) != 2 || icons[0] != "youtube" || icons[1] != "un" {
+		t.Fatalf("icons = %v, want [youtube un]", icons)
 	}
 	// 核心没起时返回空，不报错。
 	if icons := liveSiteIcons(dir, 59998); len(icons) != 0 {
