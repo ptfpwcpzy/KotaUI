@@ -473,7 +473,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	a.resetMonth()
 	a.syncTraffic()
 	s := a.store.Snapshot()
-	aggregateSiteRecords(a.runtime.DataDir, s.Settings.Relay.Username, false)
+	aggregateSiteRecords(a.runtime.DataDir, s.Settings.Relay.Username, s.Settings.Domain, false)
 	active, totalUsed, monthlyUsed, monthlyDownload := 0, int64(0), int64(0), int64(0)
 	ports := make([]int, 0, len(s.Inbounds))
 	for _, inbound := range s.Inbounds {

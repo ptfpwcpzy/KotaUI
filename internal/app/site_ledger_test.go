@@ -89,7 +89,7 @@ func TestBuildSiteRankingMerge(t *testing.T) {
 		"domain:zouter.5224210.xyz": {Upload: 40, Download: 40, Duration: 5},
 		"domain:vmiss3.5224210.xyz": {Upload: 60, Download: 60, Duration: 7},
 	}
-	ranking := buildSiteRanking(ledger, "usa")
+	ranking := buildSiteRanking(ledger, "usa", "")
 	if len(ranking.Sites) != 2 {
 		t.Fatalf("sites = %d, want 2: %+v", len(ranking.Sites), ranking.Sites)
 	}
@@ -103,6 +103,65 @@ func TestBuildSiteRankingMerge(t *testing.T) {
 	}
 	if ranking.OtherCount != 0 || ranking.OtherBytes != 0 {
 		t.Errorf("other = %d/%d, want 0/0", ranking.OtherCount, ranking.OtherBytes)
+	}
+}
+
+func TestIsOwnDomain(t *testing.T) {
+	cases := []struct {
+		host, own string
+		want      bool
+	}{
+		{"vmiss3.5224210.xyz", "vmiss3.5224210.xyz", true},
+		{"a.vmiss3.5224210.xyz", "vmiss3.5224210.xyz", true},
+		{"zouter.5224210.xyz", "vmiss3.5224210.xyz", false},
+		{"5224210.xyz", "vmiss3.5224210.xyz", false},
+		{"VMISS3.5224210.XYZ", "vmiss3.5224210.xyz", true},
+		{"103.97.200.102", "103.97.200.102", true},
+		{"anything.example", "", false},
+		{"", "vmiss3.5224210.xyz", false},
+	}
+	for _, tc := range cases {
+		if got := isOwnDomain(tc.host, tc.own); got != tc.want {
+			t.Errorf("isOwnDomain(%q, %q) = %v, want %v", tc.host, tc.own, got, tc.want)
+		}
+	}
+}
+
+func TestOwnDomainExcluded(t *testing.T) {
+	siteLastAggregate = time.Time{}
+	siteLastCleanup = time.Time{}
+	dir := t.TempDir()
+	today := time.Now().Format("2006-01-02")
+	noon := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Local)
+	record := func(user, host string, up, down int64) string {
+		body, _ := json.Marshal(siteRecord{User: user, Host: host, Upload: up, Download: down, Start: noon.Unix(), End: noon.Add(time.Minute).Unix()})
+		return string(body) + "\n"
+	}
+	// 本机域名本身、它的子域名都不入账；同主域名的另一台服务器照常入账。
+	content := record("alice", "vmiss3.5224210.xyz", 100, 100)
+	content += record("alice", "a.vmiss3.5224210.xyz", 100, 100)
+	content += record("alice", "zouter.5224210.xyz", 10, 20)
+	content += record("alice", "youtube.com", 50, 50)
+	writeSiteRecords(t, dir, content)
+	aggregateSiteRecords(dir, "", "vmiss3.5224210.xyz", true)
+	ledger := readDayLedger(t, dir, today)
+	alice := ledger.Services["alice"]
+	if len(alice) != 2 {
+		t.Fatalf("alice keys = %v, want only zouter + youtube", alice)
+	}
+	if alice["domain:5224210.xyz"] == nil || alice["domain:5224210.xyz"].bytes() != 30 {
+		t.Fatalf("zouter must stay, got %+v", alice["domain:5224210.xyz"])
+	}
+	// 已入账的旧账本里，本机域名行在展示时也要排除，且不计入其余合计。
+	ledger.Services["alice"]["domain:vmiss3.5224210.xyz"] = &siteTotals{Upload: 500, Download: 500}
+	ranking := buildSiteRanking(ledger, "alice", "vmiss3.5224210.xyz")
+	for _, row := range ranking.Sites {
+		if row.Domain == "vmiss3.5224210.xyz" || row.Name == "vmiss3.5224210.xyz" {
+			t.Fatalf("own domain must not be displayed, got %+v", row)
+		}
+	}
+	if ranking.OtherBytes != 0 || ranking.OtherCount != 0 {
+		t.Fatalf("other = %d/%d, want 0/0 (own domain excluded, rest all in top 10)", ranking.OtherCount, ranking.OtherBytes)
 	}
 }
 
@@ -144,7 +203,7 @@ func TestAggregateSiteRecords(t *testing.T) {
 	torn := record("alice", "spotify.com", 70, 30, todayNoon.Unix(), todayNoon.Add(5*time.Minute).Unix())
 	content += torn[:len(torn)-5] // 半截行：不结尾换行，本次不算
 	writeSiteRecords(t, dir, content)
-	aggregateSiteRecords(dir, "relay-abc", true)
+	aggregateSiteRecords(dir, "relay-abc", "", true)
 
 	ledger := readDayLedger(t, dir, today)
 	alice := ledger.Services["alice"]
@@ -182,7 +241,7 @@ func TestAggregateSiteRecords(t *testing.T) {
 	}
 	// 补全半截行后，下次聚合算进去，不重算旧记录。
 	writeSiteRecords(t, dir, content+torn[len(torn)-5:]+"\n")
-	aggregateSiteRecords(dir, "relay-abc", true)
+	aggregateSiteRecords(dir, "relay-abc", "", true)
 	ledger = readDayLedger(t, dir, today)
 	if ledger.Services["alice"]["spotify"] == nil || ledger.Services["alice"]["spotify"].bytes() != 100 {
 		t.Fatalf("spotify after completion = %+v, want 100", ledger.Services["alice"]["spotify"])
@@ -198,7 +257,7 @@ func TestBuildSiteRanking(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		ledger.Services["alice"][fmt.Sprintf("domain:site%d.example", i)] = &siteTotals{Upload: 10, Download: int64(100 - i), Duration: int64(i)}
 	}
-	ranking := buildSiteRanking(ledger, "alice")
+	ranking := buildSiteRanking(ledger, "alice", "")
 	if len(ranking.Sites) != 10 {
 		t.Fatalf("sites = %d, want 10", len(ranking.Sites))
 	}
@@ -216,7 +275,7 @@ func TestBuildSiteRanking(t *testing.T) {
 	if ranking.Sites[0].Bytes <= ranking.Sites[9].Bytes {
 		t.Fatal("sites must be sorted by bytes desc")
 	}
-	if empty := buildSiteRanking(ledger, "nobody"); len(empty.Sites) != 0 || empty.OtherCount != 0 {
+	if empty := buildSiteRanking(ledger, "nobody", ""); len(empty.Sites) != 0 || empty.OtherCount != 0 {
 		t.Fatalf("unknown user must be empty, got %+v", empty)
 	}
 }
@@ -236,7 +295,7 @@ func TestSiteLedgerRetention(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	aggregateSiteRecords(dir, "", true)
+	aggregateSiteRecords(dir, "", "", true)
 	if _, err := os.Stat(siteLedgerDayPath(dir, drop)); !os.IsNotExist(err) {
 		t.Fatalf("day file %s must be deleted", drop)
 	}
@@ -289,7 +348,7 @@ func TestSiteRecordsTruncation(t *testing.T) {
 		builder.WriteByte('\n')
 	}
 	writeSiteRecords(t, dir, builder.String())
-	aggregateSiteRecords(dir, "", true)
+	aggregateSiteRecords(dir, "", "", true)
 	info, err := os.Stat(proxy.SiteRecordsPath(dir))
 	if err != nil {
 		t.Fatal(err)

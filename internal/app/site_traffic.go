@@ -20,7 +20,7 @@ func (a *App) siteTraffic(w http.ResponseWriter, r *http.Request) {
 	user := r.URL.Query().Get("user")
 	snapshot := a.store.Snapshot()
 	relayUsername := snapshot.Settings.Relay.Username
-	aggregateSiteRecords(a.runtime.DataDir, relayUsername, true)
+	aggregateSiteRecords(a.runtime.DataDir, relayUsername, snapshot.Settings.Domain, true)
 	lookupUser := user
 	if user == "中转主机A" {
 		lookupUser = relayUsername
@@ -30,7 +30,7 @@ func (a *App) siteTraffic(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	ranking := buildSiteRanking(ledger, lookupUser)
+	ranking := buildSiteRanking(ledger, lookupUser, snapshot.Settings.Domain)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"date":       date,
 		"user":       user,

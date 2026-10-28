@@ -362,6 +362,20 @@ func baseDomain(host string) string {
 	return host
 }
 
+// isOwnDomain 判断连接域名是不是本机域名：主机在安装时绑定的域名
+// （Settings.Domain）本身及其子域名都算本机流量，排行里排除；同主域名的
+// 其他子域名（例如同一域名下的另一台服务器）不算，不排除。
+func isOwnDomain(host, ownDomain string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	host = strings.TrimSuffix(host, ".")
+	ownDomain = strings.ToLower(strings.TrimSpace(ownDomain))
+	ownDomain = strings.TrimSuffix(ownDomain, ".")
+	if host == "" || ownDomain == "" {
+		return false
+	}
+	return host == ownDomain || strings.HasSuffix(host, "."+ownDomain)
+}
+
 // mapSiteHost 把连接域名归到服务：返回服务 id；未映射的域名返回以主域名为
 // 键的键，空域名返回未知服务键。
 func mapSiteHost(host string) (key string, service *siteService) {
@@ -442,7 +456,7 @@ func readSiteOffset(dataDir string) (int64, error) {
 // aggregateSiteRecords 把核心记录文件里的新记录聚合进日账本。force 为
 // false 时 5 秒内只跑一次（仪表盘 2 秒一刷时不重复写盘）；钻取接口用
 // force 保证看到最新数据。失败只记日志，不影响仪表盘和钻取返回。
-func aggregateSiteRecords(dataDir, relayUsername string, force bool) {
+func aggregateSiteRecords(dataDir, relayUsername, ownDomain string, force bool) {
 	siteAggregateMu.Lock()
 	defer siteAggregateMu.Unlock()
 	now := time.Now()
@@ -450,12 +464,12 @@ func aggregateSiteRecords(dataDir, relayUsername string, force bool) {
 		return
 	}
 	siteLastAggregate = now
-	if err := aggregateSiteRecordsOnce(dataDir, relayUsername, now); err != nil {
+	if err := aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain, now); err != nil {
 		log.Printf("聚合网站排行账本失败：%v", err)
 	}
 }
 
-func aggregateSiteRecordsOnce(dataDir, relayUsername string, now time.Time) error {
+func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time.Time) error {
 	maybeCleanupSiteLedgers(dataDir, now)
 	recordsPath := proxy.SiteRecordsPath(dataDir)
 	info, err := os.Stat(recordsPath)
@@ -505,6 +519,9 @@ func aggregateSiteRecordsOnce(dataDir, relayUsername string, now time.Time) erro
 			continue
 		}
 		if record.User == "" || record.Upload+record.Download == 0 {
+			continue
+		}
+		if isOwnDomain(record.Host, ownDomain) {
 			continue
 		}
 		day := time.Unix(record.End, 0).Format("2006-01-02")
@@ -632,7 +649,7 @@ type siteRanking struct {
 }
 
 // buildSiteRanking 把某用户某天的账本排成前 10 + 其余合计。
-func buildSiteRanking(ledger *daySiteLedger, username string) siteRanking {
+func buildSiteRanking(ledger *daySiteLedger, username, ownDomain string) siteRanking {
 	ranking := siteRanking{Sites: []siteRow{}}
 	if ledger == nil || username == "" {
 		return ranking
@@ -654,6 +671,9 @@ func buildSiteRanking(ledger *daySiteLedger, username string) siteRanking {
 		}
 		displayKey := key
 		if host, ok := strings.CutPrefix(key, "domain:"); ok {
+			if isOwnDomain(host, ownDomain) {
+				continue
+			}
 			displayKey, _ = mapSiteHost(baseDomain(host))
 		}
 		m := merged[displayKey]
