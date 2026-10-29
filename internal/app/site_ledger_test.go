@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ptfpwcpzy/KotaUI/internal/config"
 	"github.com/ptfpwcpzy/KotaUI/internal/proxy"
 )
 
@@ -290,8 +291,8 @@ func TestOwnDomainExcluded(t *testing.T) {
 	siteLastAggregate = time.Time{}
 	siteLastCleanup = time.Time{}
 	dir := t.TempDir()
-	today := time.Now().Format("2006-01-02")
-	noon := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Local)
+	today := time.Now().In(config.PanelLocation).Format("2006-01-02")
+	noon := time.Date(time.Now().In(config.PanelLocation).Year(), time.Now().In(config.PanelLocation).Month(), time.Now().In(config.PanelLocation).Day(), 12, 0, 0, 0, config.PanelLocation)
 	record := func(user, host string, up, down int64) string {
 		body, _ := json.Marshal(siteRecord{User: user, Host: host, Upload: up, Download: down, Start: noon.Unix(), End: noon.Add(time.Minute).Unix()})
 		return string(body) + "\n"
@@ -360,9 +361,9 @@ func TestAggregateSiteRecords(t *testing.T) {
 	siteLastAggregate = time.Time{}
 	siteLastCleanup = time.Time{}
 	dir := t.TempDir()
-	today := time.Now().Format("2006-01-02")
-	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	todayNoon := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Local)
+	today := time.Now().In(config.PanelLocation).Format("2006-01-02")
+	yesterday := time.Now().In(config.PanelLocation).AddDate(0, 0, -1).Format("2006-01-02")
+	todayNoon := time.Date(time.Now().In(config.PanelLocation).Year(), time.Now().In(config.PanelLocation).Month(), time.Now().In(config.PanelLocation).Day(), 12, 0, 0, 0, config.PanelLocation)
 	yesterdayNoon := todayNoon.AddDate(0, 0, -1)
 	record := func(user, host string, up, down, start, end int64) string {
 		body, _ := json.Marshal(siteRecord{User: user, Host: host, Upload: up, Download: down, Start: start, End: end})
@@ -430,8 +431,8 @@ func TestAggregateSiteRecordsIP(t *testing.T) {
 	siteLastAggregate = time.Time{}
 	siteLastCleanup = time.Time{}
 	dir := t.TempDir()
-	today := time.Now().Format("2006-01-02")
-	noon := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 12, 0, 0, 0, time.Local)
+	today := time.Now().In(config.PanelLocation).Format("2006-01-02")
+	noon := time.Date(time.Now().In(config.PanelLocation).Year(), time.Now().In(config.PanelLocation).Month(), time.Now().In(config.PanelLocation).Day(), 12, 0, 0, 0, config.PanelLocation)
 	record := func(user, host, dst string, up, down int64) string {
 		body, _ := json.Marshal(siteRecord{User: user, Host: host, Dst: dst, Upload: up, Download: down, Start: noon.Unix(), End: noon.Add(10 * time.Minute).Unix()})
 		return string(body) + "\n"
@@ -588,5 +589,34 @@ func TestSiteSuffixesWellFormed(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// 账本必须按面板时区（上海）切天，不能按服务器本地时间。
+// 2026-10-28 20:00 UTC 是上海 10-29 04:00：服务器本地还是 10-28，
+// 但记录必须进 10-29 的账本；上海午夜前后两分钟也必须分属两天。
+func TestAggregateSiteRecordsPanelDay(t *testing.T) {
+	siteLastAggregate = time.Time{}
+	siteLastCleanup = time.Time{}
+	dir := t.TempDir()
+	record := func(user, host string, start, end int64) string {
+		body, _ := json.Marshal(siteRecord{User: user, Host: host, Upload: 10, Download: 90, Start: start, End: end})
+		return string(body) + "\n"
+	}
+	crossEnd := time.Date(2026, 10, 29, 4, 0, 0, 0, config.PanelLocation)
+	midnight := time.Date(2026, 10, 29, 0, 0, 0, 0, config.PanelLocation)
+	beforeMidnight := time.Date(2026, 10, 28, 23, 59, 0, 0, config.PanelLocation)
+	content := record("alice", "youtube.com", crossEnd.Add(-time.Hour).Unix(), crossEnd.Unix())
+	content += record("alice", "youtube.com", midnight.Add(-time.Hour).Unix(), midnight.Unix())
+	content += record("alice", "youtube.com", beforeMidnight.Add(-time.Hour).Unix(), beforeMidnight.Unix())
+	writeSiteRecords(t, dir, content)
+	aggregateSiteRecords(dir, "relay-abc", "", true)
+	day29 := readDayLedger(t, dir, "2026-10-29")
+	if day29.Services["alice"]["youtube"] == nil || day29.Services["alice"]["youtube"].bytes() != 200 {
+		t.Fatalf("2026-10-29 alice youtube = %+v, want 200 bytes", day29.Services["alice"]["youtube"])
+	}
+	day28 := readDayLedger(t, dir, "2026-10-28")
+	if day28.Services["alice"]["youtube"] == nil || day28.Services["alice"]["youtube"].bytes() != 100 {
+		t.Fatalf("2026-10-28 alice youtube = %+v, want 100 bytes", day28.Services["alice"]["youtube"])
 	}
 }

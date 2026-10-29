@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ptfpwcpzy/KotaUI/internal/config"
 	"github.com/ptfpwcpzy/KotaUI/internal/proxy"
 	"golang.org/x/net/publicsuffix"
 )
@@ -574,7 +575,8 @@ func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time
 		if isOwnDomain(record.Host, ownDomain) {
 			continue
 		}
-		day := time.Unix(record.End, 0).Format("2006-01-02")
+		// 账本按面板时区（上海）切天，和界面查的日期一致；不要用服务器本地时间。
+		day := time.Unix(record.End, 0).In(config.PanelLocation).Format("2006-01-02")
 		byDay[day] = append(byDay[day], record)
 	}
 	for day, records := range byDay {
@@ -675,7 +677,7 @@ func maybeCleanupSiteLedgers(dataDir string, now time.Time) {
 	if err != nil {
 		return
 	}
-	cutoff := now.AddDate(0, 0, -(siteLedgerRetentionDays - 1)).Format("2006-01-02")
+	cutoff := now.In(config.PanelLocation).AddDate(0, 0, -(siteLedgerRetentionDays - 1)).Format("2006-01-02")
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
