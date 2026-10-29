@@ -386,13 +386,9 @@
   };
 
   function renderSettingsTargets() {
-    const form = document.querySelector('.settings-form');
-    if (!form || document.querySelector('.ping-settings-card')) return;
-    const card = document.createElement('section');
-    card.className = 'card section ping-settings-card';
-    card.style.marginTop = '18px';
-    card.innerHTML = `<div class="section-head"><div><h2>回程网络监测</h2></div></div><form class="fields" id="ping-target-form"><label>名称<input name="name" required maxlength="40" placeholder="例如：电信"></label><label>IP 或域名<input name="address" required maxlength="253" placeholder="例如：1.1.1.1 或 example.com"></label><div class="full"><button class="primary" type="submit">添加监测目标</button></div></form><div class="nq-target-list" id="ping-target-list"></div>`;
-    (form.closest('.list') || form.closest('.card')?.parentElement)?.append(card);
+    const card = document.querySelector('.ping-settings-card');
+    if (!card || card.dataset.bound) return;
+    card.dataset.bound = '1';
     card.querySelector('#ping-target-form').onsubmit = async event => {
       event.preventDefault();
       const data = Object.fromEntries(new FormData(event.target));
