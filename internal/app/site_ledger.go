@@ -506,8 +506,10 @@ func readSiteOffset(dataDir string) (int64, error) {
 
 // aggregateSiteRecords 把核心记录文件里的新记录聚合进日账本。force 为
 // false 时 5 秒内只跑一次（仪表盘 2 秒一刷时不重复写盘）；钻取接口用
-// force 保证看到最新数据。失败只记日志，不影响仪表盘和钻取返回。
-func aggregateSiteRecords(dataDir, relayUsername, ownDomain string, force bool) {
+// force 保证看到最新数据。siteDetailEnabled 为 false 时只排空记录文件
+// 不写账本：关闭状态下不留存任何网站明细，记录也不会无限增长。
+// 失败只记日志，不影响仪表盘和钻取返回。
+func aggregateSiteRecords(dataDir, relayUsername, ownDomain string, force, siteDetailEnabled bool) {
 	siteAggregateMu.Lock()
 	defer siteAggregateMu.Unlock()
 	now := time.Now()
@@ -515,12 +517,12 @@ func aggregateSiteRecords(dataDir, relayUsername, ownDomain string, force bool) 
 		return
 	}
 	siteLastAggregate = now
-	if err := aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain, now); err != nil {
+	if err := aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain, now, siteDetailEnabled); err != nil {
 		log.Printf("聚合网站排行账本失败：%v", err)
 	}
 }
 
-func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time.Time) error {
+func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time.Time, siteDetailEnabled bool) error {
 	maybeCleanupSiteLedgers(dataDir, now)
 	recordsPath := proxy.SiteRecordsPath(dataDir)
 	info, err := os.Stat(recordsPath)
@@ -557,6 +559,10 @@ func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time
 	}
 	complete := raw[:lastNewline+1]
 	newOffset := offset + int64(len(complete))
+	if !siteDetailEnabled {
+		// 关闭时不解析、不写账本，只排空到最后一个完整换行。
+		return advanceSiteOffset(dataDir, recordsPath, size, newOffset)
+	}
 	byDay := map[string][]siteRecord{}
 	scanner := bufio.NewScanner(bytes.NewReader(complete))
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -616,11 +622,15 @@ func aggregateSiteRecordsOnce(dataDir, relayUsername, ownDomain string, now time
 			return err
 		}
 	}
+	return advanceSiteOffset(dataDir, recordsPath, size, newOffset)
+}
+
+// advanceSiteOffset 推进记录消费偏移；记录文件已全部消费且过大时截断
+// 归零：核心以 O_APPEND 打开，截断后新记录仍从文件头写，不会丢到旧偏移里。
+func advanceSiteOffset(dataDir, recordsPath string, size, newOffset int64) error {
 	if err := writeFileAtomic(siteLedgerOffsetPath(dataDir), []byte(strconv.FormatInt(newOffset, 10)), 0600); err != nil {
 		return err
 	}
-	// 记录文件已全部消费且过大时截断归零：核心以 O_APPEND 打开，
-	// 截断后新记录仍从文件头写，不会丢到旧偏移里。
 	if size > siteRecordsMaxBytes && newOffset == size {
 		if err := os.Truncate(recordsPath, 0); err != nil {
 			return err

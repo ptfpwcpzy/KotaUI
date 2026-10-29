@@ -473,7 +473,11 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 	a.resetMonth()
 	a.syncTraffic()
 	s := a.store.Snapshot()
-	aggregateSiteRecords(a.runtime.DataDir, s.Settings.Relay.Username, s.Settings.Domain, false)
+	aggregateSiteRecords(a.runtime.DataDir, s.Settings.Relay.Username, s.Settings.Domain, false, s.Settings.SiteDetailEnabled)
+	liveSites := []string{}
+	if s.Settings.SiteDetailEnabled {
+		liveSites = liveSiteIcons(a.runtime.DataDir, a.runtime.StatsPort)
+	}
 	active, totalUsed, monthlyUsed, monthlyDownload := 0, int64(0), int64(0), int64(0)
 	ports := make([]int, 0, len(s.Inbounds))
 	for _, inbound := range s.Inbounds {
@@ -518,7 +522,7 @@ func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
 		"healthHints":         dashboardHints(s, certificate, services),
 		"dailyTraffic":        lastSevenDays(s, time.Now()),
 		"dailyTrafficByUser":  dailyTrafficByUser(s, time.Now()),
-		"liveSites":           liveSiteIcons(a.runtime.DataDir, a.runtime.StatsPort),
+		"liveSites":           liveSites,
 	})
 }
 
@@ -1015,9 +1019,10 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 	blockedDomainsChanged := incoming.BlockedDomains != nil && !reflect.DeepEqual(incoming.BlockedDomains, current.BlockedDomains)
 	blockBitTorrentChanged := incoming.BlockBitTorrent != nil && *incoming.BlockBitTorrent != current.BlockBitTorrent
 	relayChanged := incoming.Relay != nil && !reflect.DeepEqual(*incoming.Relay, current.Relay)
+	siteDetailChanged := incoming.SiteDetailEnabled != nil && *incoming.SiteDetailEnabled != current.SiteDetailEnabled
 	requiresCoreApply := outboundChanged || blockedDomainsChanged || blockBitTorrentChanged || relayChanged
 	if !requiresCoreApply {
-		if !candidatesChanged && !dashboardChanged {
+		if !candidatesChanged && !dashboardChanged && !siteDetailChanged {
 			writeJSON(w, http.StatusOK, map[string]any{"settings": current, "applied": true, "message": "设置没有变化，当前配置已生效。"})
 			return
 		}
@@ -1029,6 +1034,9 @@ func (a *App) settings(w http.ResponseWriter, r *http.Request) {
 		err := a.store.Update(func(s *config.State) error {
 			if incoming.RealityCandidates != nil {
 				s.Settings.RealityCandidates = incoming.RealityCandidates
+			}
+			if incoming.SiteDetailEnabled != nil {
+				s.Settings.SiteDetailEnabled = *incoming.SiteDetailEnabled
 			}
 			applyDashboardSettings(&s.Settings, incoming)
 			return nil
@@ -1087,6 +1095,7 @@ type settingsUpdateRequest struct {
 	OutboundStrategy  string                    `json:"outboundStrategy"`
 	BlockedDomains    []string                  `json:"blockedDomains"`
 	BlockBitTorrent   *bool                     `json:"blockBitTorrent"`
+	SiteDetailEnabled *bool                     `json:"siteDetailEnabled"`
 	MonthlyQuotaGB    *int                      `json:"monthlyQuotaGB"`
 	BandwidthMbps     *int                      `json:"bandwidthMbps"`
 	TrafficDirection  *string                   `json:"trafficDirection"`

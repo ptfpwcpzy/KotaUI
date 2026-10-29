@@ -303,7 +303,7 @@ func TestOwnDomainExcluded(t *testing.T) {
 	content += record("alice", "zouter.5224210.xyz", 10, 20)
 	content += record("alice", "youtube.com", 50, 50)
 	writeSiteRecords(t, dir, content)
-	aggregateSiteRecords(dir, "", "vmiss3.5224210.xyz", true)
+	aggregateSiteRecords(dir, "", "vmiss3.5224210.xyz", true, true)
 	ledger := readDayLedger(t, dir, today)
 	alice := ledger.Services["alice"]
 	if len(alice) != 1 || alice["youtube"] == nil || alice["youtube"].bytes() != 100 {
@@ -379,7 +379,7 @@ func TestAggregateSiteRecords(t *testing.T) {
 	torn := record("alice", "spotify.com", 70, 30, todayNoon.Unix(), todayNoon.Add(5*time.Minute).Unix())
 	content += torn[:len(torn)-5] // 半截行：不结尾换行，本次不算
 	writeSiteRecords(t, dir, content)
-	aggregateSiteRecords(dir, "relay-abc", "", true)
+	aggregateSiteRecords(dir, "relay-abc", "", true, true)
 
 	ledger := readDayLedger(t, dir, today)
 	alice := ledger.Services["alice"]
@@ -417,7 +417,7 @@ func TestAggregateSiteRecords(t *testing.T) {
 	}
 	// 补全半截行后，下次聚合算进去，不重算旧记录。
 	writeSiteRecords(t, dir, content+torn[len(torn)-5:]+"\n")
-	aggregateSiteRecords(dir, "relay-abc", "", true)
+	aggregateSiteRecords(dir, "relay-abc", "", true, true)
 	ledger = readDayLedger(t, dir, today)
 	if ledger.Services["alice"]["spotify"] == nil || ledger.Services["alice"]["spotify"].bytes() != 100 {
 		t.Fatalf("spotify after completion = %+v, want 100", ledger.Services["alice"]["spotify"])
@@ -442,7 +442,7 @@ func TestAggregateSiteRecordsIP(t *testing.T) {
 	content += record("bob", "", "8.8.8.8", 10, 20)
 	content += record("carol", "youtube.com", "149.154.167.51", 70, 30)
 	writeSiteRecords(t, dir, content)
-	aggregateSiteRecords(dir, "relay-abc", "", true)
+	aggregateSiteRecords(dir, "relay-abc", "", true, true)
 	ledger := readDayLedger(t, dir, today)
 	if ledger.Services["alice"]["telegram"] == nil || ledger.Services["alice"]["telegram"].bytes() != 1000 {
 		t.Fatalf("alice telegram = %+v, want 1000 bytes", ledger.Services["alice"]["telegram"])
@@ -506,7 +506,7 @@ func TestSiteLedgerRetention(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	aggregateSiteRecords(dir, "", "", true)
+	aggregateSiteRecords(dir, "", "", true, true)
 	if _, err := os.Stat(siteLedgerDayPath(dir, drop)); !os.IsNotExist(err) {
 		t.Fatalf("day file %s must be deleted", drop)
 	}
@@ -560,7 +560,7 @@ func TestSiteRecordsTruncation(t *testing.T) {
 		builder.WriteByte('\n')
 	}
 	writeSiteRecords(t, dir, builder.String())
-	aggregateSiteRecords(dir, "", "", true)
+	aggregateSiteRecords(dir, "", "", true, true)
 	info, err := os.Stat(proxy.SiteRecordsPath(dir))
 	if err != nil {
 		t.Fatal(err)
@@ -610,7 +610,7 @@ func TestAggregateSiteRecordsPanelDay(t *testing.T) {
 	content += record("alice", "youtube.com", midnight.Add(-time.Hour).Unix(), midnight.Unix())
 	content += record("alice", "youtube.com", beforeMidnight.Add(-time.Hour).Unix(), beforeMidnight.Unix())
 	writeSiteRecords(t, dir, content)
-	aggregateSiteRecords(dir, "relay-abc", "", true)
+	aggregateSiteRecords(dir, "relay-abc", "", true, true)
 	day29 := readDayLedger(t, dir, "2026-10-29")
 	if day29.Services["alice"]["youtube"] == nil || day29.Services["alice"]["youtube"].bytes() != 200 {
 		t.Fatalf("2026-10-29 alice youtube = %+v, want 200 bytes", day29.Services["alice"]["youtube"])
@@ -618,5 +618,47 @@ func TestAggregateSiteRecordsPanelDay(t *testing.T) {
 	day28 := readDayLedger(t, dir, "2026-10-28")
 	if day28.Services["alice"]["youtube"] == nil || day28.Services["alice"]["youtube"].bytes() != 100 {
 		t.Fatalf("2026-10-28 alice youtube = %+v, want 100 bytes", day28.Services["alice"]["youtube"])
+	}
+}
+
+// 关闭时只排空记录文件：不写日账本，偏移照常推进；排空的记录事后
+// 再打开开关也不会重算进去。
+func TestAggregateSiteRecordsDisabled(t *testing.T) {
+	siteLastAggregate = time.Time{}
+	siteLastCleanup = time.Time{}
+	dir := t.TempDir()
+	noon := time.Date(2026, 10, 29, 12, 0, 0, 0, config.PanelLocation)
+	record := func(user, host string, up, down int64) string {
+		body, _ := json.Marshal(siteRecord{User: user, Host: host, Upload: up, Download: down, Start: noon.Unix(), End: noon.Add(10 * time.Minute).Unix()})
+		return string(body) + "\n"
+	}
+	content := record("alice", "youtube.com", 100, 900)
+	writeSiteRecords(t, dir, content)
+	aggregateSiteRecords(dir, "relay-abc", "", true, false)
+	entries, err := os.ReadDir(siteLedgerDir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			t.Fatalf("disabled must not write day ledgers, found %s", entry.Name())
+		}
+	}
+	offsetRaw, err := os.ReadFile(siteLedgerOffsetPath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offset int64
+	if _, err := fmt.Sscanf(string(offsetRaw), "%d", &offset); err != nil {
+		t.Fatal(err)
+	}
+	if offset != int64(len(content)) {
+		t.Fatalf("disabled offset = %d, want %d", offset, len(content))
+	}
+	// 事后再打开开关聚合，排空的记录不会重算。
+	aggregateSiteRecords(dir, "relay-abc", "", true, true)
+	ledger := readDayLedger(t, dir, "2026-10-29")
+	if ledger.Services["alice"] != nil {
+		t.Fatalf("drained records must not be counted after re-enabling, got %+v", ledger.Services["alice"])
 	}
 }

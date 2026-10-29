@@ -77,6 +77,7 @@ type Settings struct {
 	OutboundStrategy  string             `json:"outboundStrategy"`
 	BlockedDomains    []string           `json:"blockedDomains"`
 	BlockBitTorrent   bool               `json:"blockBitTorrent"`
+	SiteDetailEnabled bool               `json:"siteDetailEnabled"`
 	PingTargets       []PingTarget       `json:"pingTargets,omitempty"`
 	MonthlyQuotaGB    int                `json:"monthlyQuotaGB,omitempty"`
 	BandwidthMbps     int                `json:"bandwidthMbps,omitempty"`

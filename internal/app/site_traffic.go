@@ -20,7 +20,17 @@ func (a *App) siteTraffic(w http.ResponseWriter, r *http.Request) {
 	user := r.URL.Query().Get("user")
 	snapshot := a.store.Snapshot()
 	relayUsername := snapshot.Settings.Relay.Username
-	aggregateSiteRecords(a.runtime.DataDir, relayUsername, snapshot.Settings.Domain, true)
+	if !snapshot.Settings.SiteDetailEnabled {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"date":       date,
+			"user":       user,
+			"sites":      []siteRow{},
+			"otherCount": 0,
+			"otherBytes": 0,
+		})
+		return
+	}
+	aggregateSiteRecords(a.runtime.DataDir, relayUsername, snapshot.Settings.Domain, true, true)
 	lookupUser := user
 	if user == "中转主机A" {
 		lookupUser = relayUsername
