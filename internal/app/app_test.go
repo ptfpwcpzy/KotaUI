@@ -244,12 +244,17 @@ func TestNormalizeRealityCandidates(t *testing.T) {
 	}
 }
 
-func TestSubscriptionPageShowsMonthlyLimit(t *testing.T) {
+func TestSubscriptionPageShowsUsageRemainingAndExpiry(t *testing.T) {
 	a := testApp(t)
-	page := a.subscriptionPage(config.Client{Username: "alice", UsedBytes: 5 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, MonthlyUsedBytes: 2 * 1024 * 1024, MonthlyLimitBytes: 10 * 1024 * 1024}, 2, "https://example.test/sub/alice")
-	for _, text := range []string{"每月限额", "本月流量", "累计"} {
+	page := a.subscriptionPage(config.Client{Username: "alice", UsedBytes: 5 * 1024 * 1024, TotalLimitBytes: 100 * 1024 * 1024, MonthlyUsedBytes: 2 * 1024 * 1024, MonthlyLimitBytes: 10 * 1024 * 1024, ExpiresAt: "2027-01-01"}, 2, "https://example.test/sub/alice")
+	for _, text := range []string{"用流量", "剩余总流量", "到期日", "2027-01-01"} {
 		if !strings.Contains(page, text) {
 			t.Fatalf("subscription page missing %q", text)
+		}
+	}
+	for _, text := range []string{"每月限额", "本月使用", "本月流量", "累计使用", "总配额", "有效期"} {
+		if strings.Contains(page, text) {
+			t.Fatalf("subscription page should not contain %q", text)
 		}
 	}
 }
