@@ -1,7 +1,9 @@
 package app
 
 import (
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -27,5 +29,51 @@ func TestSplitHostAddresses(t *testing.T) {
 	}
 	if !reflect.DeepEqual(ipv6, want6) {
 		t.Fatalf("ipv6 = %v, want %v", ipv6, want6)
+	}
+}
+
+// TestDashboardRefreshSkipsUnchangedSections 保证仪表盘 2 秒刷新时，内容没
+// 变的区块不再重写 innerHTML（重写会把用户正在选中的文字打断，主机地址
+// 选不中就是这么来的）。四个区块都要守，首屏渲染也要把主机地址条算进
+// 去、并记下初始内容，否则第一次刷新仍会重写。
+func TestDashboardRefreshSkipsUnchangedSections(t *testing.T) {
+	raw, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(raw)
+	for _, want := range []string{
+		"if(last.gauge!==parts.gauge)gauge.innerHTML=parts.gauge;",
+		"if(last.main!==parts.main)main.innerHTML=parts.main;",
+		"if(last.strips!==parts.strips)strip.innerHTML=parts.strips;",
+		"if(notes&&last.notices!==parts.notices)notes.innerHTML=parts.notices;",
+		"lastDashParts=parts;",
+		`<div class="dashboard-strips">${health}${online}${hostStrip}</div>`,
+		"lastDashParts={gauge:gaugeHTML,main:mainHTML,strips:health+online+hostStrip,notices};",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("web/index.html missing %q", want)
+		}
+	}
+}
+
+// TestHostAddressCopyOnClick 保证主机地址每个地址都能点一下复制，且拖选
+// 文字松开时不会误触发复制；没有地址时显示的“无”不带点击复制。
+func TestHostAddressCopyOnClick(t *testing.T) {
+	raw, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(raw)
+	for _, want := range []string{
+		`<span onclick="copyHostAddr(this)" title="点击复制">${esc(a)}</span>`,
+		"function copyHostAddr(el){const sel=getSelection();if(sel&&!sel.isCollapsed)return;",
+		"navigator.clipboard.writeText(el.textContent)",
+		"||'<span>无</span>'",
+		".host-addrs span[onclick]{cursor:pointer}",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("web/index.html missing %q", want)
+		}
 	}
 }
