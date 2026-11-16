@@ -80,19 +80,23 @@ func TestHostAddressCopyOnClick(t *testing.T) {
 	}
 }
 
-// TestWeekSiteDomainCopyOnClick 保证流量详情里每条网站行的域名都能点一下复制。
-func TestWeekSiteDomainCopyOnClick(t *testing.T) {
+// TestWeekSiteDomainOpensSite 保证流量详情里每条网站行的域名点一下就
+// 在新标签页打开该网站（不再是点一下复制，复制改走长按选中）。
+func TestWeekSiteDomainOpensSite(t *testing.T) {
 	raw, err := os.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	html := string(raw)
 	for _, want := range []string{
-		`<span class="week-site-dm" onclick="copyText(this)" title="点击复制">${esc(s.domain)}</span>`,
-		".week-site-dm[onclick]{cursor:pointer}",
+		`<a class="week-site-dm" href="https://${esc(s.domain)}" target="_blank" rel="noopener" title="点击打开">${esc(s.domain)}</a>`,
+		".week-site-dm{display:block;font-size:12px;color:var(--muted);font-weight:400;text-decoration:none}",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("web/index.html missing %q", want)
 		}
+	}
+	if strings.Contains(html, `class="week-site-dm" onclick="copyText(this)"`) {
+		t.Errorf("web/index.html: 网站域名不应再带点一下复制")
 	}
 }
