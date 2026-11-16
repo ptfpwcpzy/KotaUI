@@ -34,8 +34,8 @@ func TestSplitHostAddresses(t *testing.T) {
 
 // TestDashboardRefreshSkipsUnchangedSections 保证仪表盘 2 秒刷新时，内容没
 // 变的区块不再重写 innerHTML（重写会把用户正在选中的文字打断，主机地址
-// 选不中就是这么来的）。四个区块都要守，首屏渲染也要把主机地址条算进
-// 去、并记下初始内容，否则第一次刷新仍会重写。
+// 和流量详情里的网站选不中都是这么来的）。四个区块和流量详情区都要守，
+// 首屏渲染也要把主机地址条算进去、并记下初始内容，否则第一次刷新仍会重写。
 func TestDashboardRefreshSkipsUnchangedSections(t *testing.T) {
 	raw, err := os.ReadFile("web/index.html")
 	if err != nil {
@@ -50,6 +50,8 @@ func TestDashboardRefreshSkipsUnchangedSections(t *testing.T) {
 		"lastDashParts=parts;",
 		`<div class="dashboard-strips">${health}${online}${hostStrip}</div>`,
 		"lastDashParts={gauge:gaugeHTML,main:mainHTML,strips:health+online+hostStrip,notices};",
+		"if(html!==lastWeekDetailHTML){el.innerHTML=html;lastWeekDetailHTML=html}",
+		"lastWeekDetailHTML=weekDetailHTML();",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("web/index.html missing %q", want)
@@ -66,11 +68,28 @@ func TestHostAddressCopyOnClick(t *testing.T) {
 	}
 	html := string(raw)
 	for _, want := range []string{
-		`<span onclick="copyHostAddr(this)" title="点击复制">${esc(a)}</span>`,
-		"function copyHostAddr(el){const sel=getSelection();if(sel&&!sel.isCollapsed)return;",
+		`<span onclick="copyText(this)" title="点击复制">${esc(a)}</span>`,
+		"function copyText(el){const sel=getSelection();if(sel&&!sel.isCollapsed)return;",
 		"navigator.clipboard.writeText(el.textContent)",
 		"||'<span>无</span>'",
 		".host-addrs span[onclick]{cursor:pointer}",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("web/index.html missing %q", want)
+		}
+	}
+}
+
+// TestWeekSiteDomainCopyOnClick 保证流量详情里每条网站行的域名都能点一下复制。
+func TestWeekSiteDomainCopyOnClick(t *testing.T) {
+	raw, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(raw)
+	for _, want := range []string{
+		`<span class="week-site-dm" onclick="copyText(this)" title="点击复制">${esc(s.domain)}</span>`,
+		".week-site-dm[onclick]{cursor:pointer}",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("web/index.html missing %q", want)
