@@ -224,7 +224,7 @@ update(){
     IFS= read -r answer || true
     case "$answer" in y|Y) ;; *) return 0;; esac
   fi
-  if command -v flock >/dev/null 2>&1 && exec 9>"$DATA_DIR/update.lock" 2>/dev/null; then
+  if command -v flock >/dev/null 2>&1 && { exec 9>"$DATA_DIR/update.lock"; } 2>/dev/null; then
     if ! flock -n 9 2>/dev/null; then
       printf '检测到已有更新任务在运行，本次取消。\n' >&2
       exec 9>&- 2>/dev/null || true

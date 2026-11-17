@@ -41,8 +41,11 @@ if [ "${KOTAUI_AUTO_UPDATE:-1}" = "0" ]; then
   exit 0
 fi
 
-# 与手动更新共用一把锁，避免两边同时跑
-if command -v flock >/dev/null 2>&1 && exec 9>"$DATA_DIR/update.lock" 2>/dev/null; then
+# 与手动更新共用一把锁，避免两边同时跑；锁只护住比对这段，
+# 真正开始更新前会先释放（更新流程自己会重新上锁）。
+# 注意：exec 的重定向会永久生效，2>/dev/null 必须放在花括号外面，
+# 否则整个脚本的标准错误都会被吞掉（之前失败原因就是这么没的）。
+if command -v flock >/dev/null 2>&1 && { exec 9>"$DATA_DIR/update.lock"; } 2>/dev/null; then
   if ! flock -n 9 2>/dev/null; then
     log '已有更新任务在运行，跳过本次检查。'
     exit 0
@@ -97,6 +100,10 @@ if [ -n "$installed" ] && [ "$installed" = "$remote" ]; then
 fi
 
 log "发现新提交：已安装 ${installed:-（无记录）}，仓库最新 $remote，开始自动更新。"
+# 更新流程自己也会对 update.lock 上锁：这里必须先释放，
+# 否则子进程上锁失败、更新还没开始就被取消（锁是按打开文件计的，
+# 父进程持锁时子进程再上同一把锁会被拒绝）。
+exec 9>&- 2>/dev/null || true
 if [ -x "$UPDATE_RUN" ]; then
   # 走独立更新服务脚本：进度会写进面板的更新状态和更新日志
   KOTAUI_DATA_DIR="$DATA_DIR" KOTAUI_KOTA_BIN="$KOTA_BIN" "$UPDATE_RUN" >> "$LOG_FILE" 2>&1
