@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -31,7 +32,17 @@ func Open(dataDir, domain string) (*Store, error) {
 		return nil, err
 	}
 	if err := json.Unmarshal(bytes, &s.data); err != nil {
-		return nil, err
+		// 主文件已损坏：尝试用上一份备份启动，只有两者都坏才报错。
+		bakBytes, bakErr := os.ReadFile(s.path + ".bak")
+		if bakErr != nil {
+			return nil, err
+		}
+		var bakData config.State
+		if bakErr := json.Unmarshal(bakBytes, &bakData); bakErr != nil {
+			return nil, err
+		}
+		log.Printf("store: state.json is corrupt (%v); recovered from state.json.bak", err)
+		s.data = bakData
 	}
 	if s.data.Inbounds == nil {
 		s.data.Inbounds = []config.Inbound{}
@@ -112,11 +123,57 @@ func (s *Store) save(state config.State) error {
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0600); err != nil {
+	// 先备份旧主文件，再写新内容：写盘中途出问题，旧数据仍在 .bak 里。
+	if err := s.backup(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path)
+	tmp := s.path + ".tmp"
+	if err := writeFileSync(tmp, body, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
+	// 目录也要 fsync，否则断电可能丢掉这次 Rename。
+	return syncDir(filepath.Dir(s.path))
+}
+
+// backup 把现有 state.json 拷一份到 state.json.bak；主文件不存在时不做任何事。
+func (s *Store) backup() error {
+	body, err := os.ReadFile(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return writeFileSync(s.path+".bak", body, 0600)
+}
+
+// writeFileSync 写文件并 fsync 落盘；fsync 失败当作写错误返回。
+func writeFileSync(path string, body []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(body); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 func clone(in config.State) config.State {

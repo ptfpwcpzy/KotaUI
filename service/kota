@@ -238,6 +238,28 @@ update(){
   do_update
 }
 
+# 更新失败时把旧二进制恢复回去并重启服务；各步失败也继续，调用方随后走失败路径。
+restore_old_binaries(){
+  if [ -f "$PREFIX/kotaui.old" ]; then mv -f "$PREFIX/kotaui.old" "$PREFIX/kotaui" || true; fi
+  if [ -f "$PREFIX/sing-box-v2ray.old" ]; then mv -f "$PREFIX/sing-box-v2ray.old" "$PREFIX/sing-box-v2ray" || true; fi
+  if [ "$(manager)" = systemd ]; then
+    systemctl restart kotaui kotaui-singbox >/dev/null 2>&1 || true
+  else
+    rc-service kotaui restart >/dev/null 2>&1 || true
+    rc-service kotaui-singbox restart >/dev/null 2>&1 || true
+  fi
+}
+
+# do_update 异常退出（set -e 下任何一步失败）时的兜底：恢复旧二进制、清理
+# 临时源码目录、写 failed 状态。正常完成或已走显式失败路径时不做任何事。
+update_fail_cleanup(){
+  [ "${update_in_progress:-0}" = 1 ] || return 0
+  update_in_progress=0
+  if [ "${update_replaced:-0}" = 1 ]; then restore_old_binaries || true; fi
+  if [ -n "${source:-}" ] && [ -d "$source" ]; then rm -rf "$source" || true; fi
+  update_status failed '更新失败，已恢复旧版本，请查看更新日志。' || true
+}
+
 do_update(){
   update_status running '正在下载最新项目源码…'
   prepare_go_cache
@@ -250,8 +272,17 @@ do_update(){
   update_status running '正在构建 KotaUI 面板程序…'
   if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在原子替换程序与维护脚本…'
+  # 从替换开始，任何异常退出（set -e 下任何一步失败）都走兜底：恢复旧二进制、
+  # 清理临时源码目录、报 failed，避免服务停机、状态卡在 running。
+  update_in_progress=1
+  update_replaced=0
+  trap 'update_fail_cleanup' EXIT
   install -m 755 "$source/kotaui" "$PREFIX/kotaui.new"
   install -m 755 "$source/sing-box-v2ray" "$PREFIX/sing-box-v2ray.new"
+  # 替换前备份旧二进制（旧文件不存在时不备份），重启失败时可恢复。
+  if [ -f "$PREFIX/kotaui" ]; then cp -p -f "$PREFIX/kotaui" "$PREFIX/kotaui.old"; fi
+  if [ -f "$PREFIX/sing-box-v2ray" ]; then cp -p -f "$PREFIX/sing-box-v2ray" "$PREFIX/sing-box-v2ray.old"; fi
+  update_replaced=1
   mv -f "$PREFIX/kotaui.new" "$PREFIX/kotaui"
   mv -f "$PREFIX/sing-box-v2ray.new" "$PREFIX/sing-box-v2ray"
   install -d -m 755 /usr/local/lib/kotaui
@@ -267,6 +298,7 @@ do_update(){
   sed -i "s|^KOTAUI_SINGBOX_BIN=.*|KOTAUI_SINGBOX_BIN=$PREFIX/sing-box-v2ray|" "$RUNTIME_ENV"
   if grep -q '^KOTAUI_GO_BIN=' "$RUNTIME_ENV"; then sed -i "s|^KOTAUI_GO_BIN=.*|KOTAUI_GO_BIN=$GO_BIN|" "$RUNTIME_ENV"; else printf 'KOTAUI_GO_BIN=%s\n' "$GO_BIN" >> "$RUNTIME_ENV"; fi
   update_status running '正在重启面板与 sing-box 核心…'
+  restart_ok=1
   if [ "$(manager)" = systemd ]; then
     install -m 644 "$source/service/kotaui.service" /etc/systemd/system/kotaui.service
     install -m 644 "$source/service/kotaui-singbox.service" /etc/systemd/system/kotaui-singbox.service
@@ -275,7 +307,7 @@ do_update(){
     install -m 644 "$source/service/kota-cert-renew.timer" /etc/systemd/system/kota-cert-renew.timer
     systemctl daemon-reload
     systemctl reset-failed kotaui-singbox >/dev/null 2>&1 || true
-    systemctl restart kotaui kotaui-singbox
+    if ! systemctl restart kotaui kotaui-singbox; then restart_ok=0; fi
     systemctl enable --now kota-cert-renew.timer >/dev/null 2>&1 || true
   else
     install -m 755 "$source/service/kotaui.openrc" /etc/init.d/kotaui
@@ -286,10 +318,24 @@ do_update(){
     rm -f /etc/periodic/6hourly/kota-cert-renew
     install -m 755 "$source/service/kota-cert-renew" /etc/periodic/daily/kota-cert-renew
     install -m 755 "$source/service/kota-autoupdate" /etc/periodic/daily/kota-autoupdate
-    rc-service kotaui restart || true; rc-service kotaui-singbox restart || true
+    if ! rc-service kotaui restart; then restart_ok=0; fi
+    if ! rc-service kotaui-singbox restart; then restart_ok=0; fi
   fi
+  if [ "$restart_ok" = 0 ]; then
+    update_in_progress=0
+    trap - EXIT
+    restore_old_binaries
+    rm -rf "$source"
+    update_status failed '重启失败，已恢复旧版本，请查看服务日志。'
+    printf '重启失败，已恢复旧版本。\n' >&2
+    return 1
+  fi
+  # 重启成功，更新已生效：不再回滚旧二进制（trap 只保留到临时目录清理完）。
+  update_replaced=0
   if [ -n "${new_commit:-}" ]; then printf '%s\n' "$new_commit" > "$DATA_DIR/installed.commit"; fi
   rm -rf "$source"
+  update_in_progress=0
+  trap - EXIT
   update_status success '更新完成，面板与核心已恢复。'
   printf 'KotaUI 已更新，配置、用户数据和证书保持不变。\n'
   pause

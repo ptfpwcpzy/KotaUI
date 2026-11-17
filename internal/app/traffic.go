@@ -115,6 +115,7 @@ func (a *App) syncTraffic() {
 	if a.trafficSyncInterval > 0 && nowTime.Sub(a.lastTrafficSync) < a.trafficSyncInterval {
 		return
 	}
+	prevSync := a.lastTrafficSync
 	a.lastTrafficSync = nowTime
 	state := a.store.Snapshot()
 	relayLanding := state.Settings.Relay.Enabled && state.Settings.Relay.Role == "landing" && state.Settings.Relay.Username != ""
@@ -124,6 +125,24 @@ func (a *App) syncTraffic() {
 	}
 	if len(state.Clients) == 0 && !relayLanding {
 		return
+	}
+	// Expiry flips are purely time-driven: expiry depends only on nowTime
+	// and the unchanged ExpiresAt, so comparing Active(nowTime) against
+	// itself inside one sync can never see one. Evaluate Active against
+	// the same client state at the previous sync time and at now instead;
+	// only the expiry check can differ (paused state and traffic limits do
+	// not depend on time), and edits made through the panel cannot trip
+	// this because both sides use the current ExpiresAt. The first sync
+	// after startup skips the check: New just wrote the config, so there
+	// is nothing to catch up on.
+	expiryChanged := false
+	if !prevSync.IsZero() {
+		for _, client := range state.Clients {
+			if client.Active(prevSync) != client.Active(nowTime) {
+				expiryChanged = true
+				break
+			}
+		}
 	}
 	usernames := make([]string, 0, len(state.Clients)+1)
 	for _, client := range state.Clients {
@@ -136,6 +155,12 @@ func (a *App) syncTraffic() {
 	defer cancel()
 	current, err := queryUserTraffic(ctx, a.runtime.StatsPort, usernames)
 	if err != nil {
+		// The expiry check above needs no traffic data, and lastTrafficSync
+		// already advanced past the flip, so reload now instead of waiting
+		// for a later sync that would no longer see it.
+		if expiryChanged {
+			a.reloadCoreConfig()
+		}
 		return
 	}
 	month := nowTime.Format("2006-01")
@@ -159,6 +184,9 @@ func (a *App) syncTraffic() {
 		}
 	}
 	if !needsSave {
+		if expiryChanged {
+			a.reloadCoreConfig()
+		}
 		return
 	}
 	// Structural changes (month/day rollover, clients added or removed) persist
@@ -281,21 +309,31 @@ func (a *App) syncTraffic() {
 		}
 		return nil
 	}); err != nil {
+		if expiryChanged {
+			a.reloadCoreConfig()
+		}
 		return
 	}
 	if persist {
 		a.lastTrafficSave = nowTime
 	}
-	if reloadCore {
-		a.mu.Lock()
-		err := writeAndValidateConfig(a.store.Snapshot(), a.runtime)
-		a.mu.Unlock()
-		if err == nil {
-			go func() {
-				if err := a.restartManagedSingBox(); err != nil {
-					log.Printf("sing-box 核心重启失败: %v", err)
-				}
-			}()
-		}
+	if reloadCore || expiryChanged {
+		a.reloadCoreConfig()
+	}
+}
+
+// reloadCoreConfig regenerates the sing-box config from the current state
+// and restarts the managed core in the background. It takes a.mu, so
+// callers must not hold it.
+func (a *App) reloadCoreConfig() {
+	a.mu.Lock()
+	err := writeAndValidateConfig(a.store.Snapshot(), a.runtime)
+	a.mu.Unlock()
+	if err == nil {
+		go func() {
+			if err := a.restartManagedSingBox(); err != nil {
+				log.Printf("sing-box 核心重启失败: %v", err)
+			}
+		}()
 	}
 }
