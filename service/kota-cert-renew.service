@@ -6,5 +6,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 TimeoutStartSec=30min
-ExecStart=-/usr/local/bin/kota-cert-renew
-ExecStart=-/usr/local/bin/kota-autoupdate
+# 续签和自动更新两步都要跑（互不影响成败），任一失败 unit 都要进入 failed 状态。
+# 不能用两条 ExecStart：第一条失败时 systemd 不再执行第二条，所以用一条 sh -c 串起两步并汇总退出码。
+# 注意：unit 里 $$ 才代表传给 shell 的 $，不要改成单个 $。
+ExecStart=/bin/sh -c '/usr/local/bin/kota-cert-renew; r1=$$?; /usr/local/bin/kota-autoupdate; r2=$$?; if [ $$r1 -ne 0 ]; then exit $$r1; else exit $$r2; fi'

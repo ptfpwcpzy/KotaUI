@@ -117,4 +117,6 @@ if [ "$rc" -eq 0 ]; then
 else
   log "自动更新失败（退出码 $rc），下次检查时重试。"
 fi
-exit 0
+# 失败要返回非零，让 systemd 的 unit 进入 failed 状态；
+# 以前这里恒 exit 0，失败只留在日志里，systemctl status 永远显示成功。
+exit "$rc"

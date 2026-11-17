@@ -173,11 +173,27 @@ func (a *App) finishUpdateForRun(runID, state, message string) {
 }
 
 func (a *App) updateIsRunning() bool {
+	progress := a.readUpdateProgressDetail()
+	if progress.State == "success" || progress.State == "failed" {
+		// 文件已到终态：本轮更新已结束。systemd 路径下更新由外部服务
+		// 完成，面板侧从不调用 finishUpdateForRun，内存标志只能靠
+		// 这里清掉；否则更新失败（面板没重启）后所有配置修改会被
+		// 长期阻塞，直到有人打开更新状态页或重启面板。
+		// 只有终态属于内存里这一轮（或无法区分轮次）时才清：新一轮
+		// 更新刚置位、文件还没来得及写成 running 时，文件里还是上
+		// 一轮的终态，不能把新一轮的标志清掉。
+		a.updateMu.Lock()
+		defer a.updateMu.Unlock()
+		if progress.RunID == "" || a.updateRunID == "" || progress.RunID == a.updateRunID {
+			a.updateRunning = false
+			return false
+		}
+		return a.updateRunning
+	}
 	a.updateMu.Lock()
 	inMemory := a.updateRunning
 	a.updateMu.Unlock()
-	state := a.readUpdateProgressDetail().State
-	if state != "running" {
+	if progress.State != "running" {
 		return inMemory
 	}
 	if systemdAvailable() {
