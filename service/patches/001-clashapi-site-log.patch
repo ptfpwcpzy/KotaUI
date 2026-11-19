@@ -1,10 +1,47 @@
+diff --git a/common/trafficcontrol/manager.go b/common/trafficcontrol/manager.go
+index 5e938cf..50d66de 100644
+--- a/common/trafficcontrol/manager.go
++++ b/common/trafficcontrol/manager.go
+@@ -43,6 +43,8 @@ type Manager struct {
+ 
+ 	eventSubscriber *observable.Subscriber[ConnectionEvent]
+ 	eventObserver   *observable.Observer[ConnectionEvent]
++
++	closedHook func(metadata *TrackerMetadata)
+ }
+ 
+ func NewManager() *Manager {
+@@ -76,6 +78,13 @@ func (m *Manager) UnSubscribeEvents(subscription observable.Subscription[Connect
+ 	m.eventObserver.UnSubscribe(subscription)
+ }
+ 
++// SetClosedHook registers a callback invoked once for every connection that
++// leaves the manager, after the close bookkeeping. It runs on the goroutine
++// closing the connection, so implementations must not block.
++func (m *Manager) SetClosedHook(hook func(metadata *TrackerMetadata)) {
++	m.closedHook = hook
++}
++
+ func (m *Manager) join(tracker Tracker) {
+ 	metadata := tracker.Metadata()
+ 	m.connections.Store(metadata.ID, tracker)
+@@ -110,6 +119,9 @@ func (m *Manager) leave(tracker Tracker) {
+ 		Metadata: &metadataCopy,
+ 		ClosedAt: closedAt,
+ 	})
++	if m.closedHook != nil {
++		m.closedHook(&metadataCopy)
++	}
+ }
+ 
+ func (m *Manager) Total() (uplinkTotal int64, downlinkTotal int64) {
 diff --git a/experimental/clashapi/server.go b/experimental/clashapi/server.go
-index 950dca0..0a0a95a 100644
+index a8c99af..62b8b32 100644
 --- a/experimental/clashapi/server.go
 +++ b/experimental/clashapi/server.go
-@@ -87,6 +87,13 @@ func NewServer(ctx context.Context, logFactory log.ObservableFactory, options op
- 	if s.urlTestHistory == nil {
- 		s.urlTestHistory = urltest.NewHistoryStorage()
+@@ -94,6 +94,13 @@ func NewServer(ctx context.Context, logFactory log.ObservableFactory, options op
+ 		externalUIDownloadURL:    options.ExternalUIDownloadURL,
+ 		externalUIDownloadDetour: options.ExternalUIDownloadDetour,
  	}
 +	if options.SiteLogPath != "" {
 +		if writer, err := newSiteLogWriter(options.SiteLogPath, s.logger); err != nil {
@@ -13,12 +50,12 @@ index 950dca0..0a0a95a 100644
 +			trafficManager.SetClosedHook(writer.handleClosed)
 +		}
 +	}
- 	defaultMode := "Rule"
- 	if options.DefaultMode != "" {
- 		defaultMode = options.DefaultMode
+ 	//goland:noinspection GoDeprecation
+ 	//nolint:staticcheck
+ 	if options.StoreMode || options.StoreSelected || options.StoreFakeIP || options.CacheFile != "" || options.CacheID != "" {
 diff --git a/experimental/clashapi/site_log.go b/experimental/clashapi/site_log.go
 new file mode 100644
-index 0000000..baa34c5
+index 0000000..4a3dad0
 --- /dev/null
 +++ b/experimental/clashapi/site_log.go
 @@ -0,0 +1,98 @@
@@ -29,8 +66,8 @@ index 0000000..baa34c5
 +	"os"
 +	"sync"
 +
++	"github.com/sagernet/sing-box/common/trafficcontrol"
 +	C "github.com/sagernet/sing-box/constant"
-+	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
 +	"github.com/sagernet/sing-box/log"
 +)
 +
@@ -70,7 +107,7 @@ index 0000000..baa34c5
 +	return w, nil
 +}
 +
-+func (w *siteLogWriter) handleClosed(metadata *trafficontrol.TrackerMetadata) {
++func (w *siteLogWriter) handleClosed(metadata *trafficcontrol.TrackerMetadata) {
 +	if metadata == nil {
 +		return
 +	}
@@ -120,51 +157,15 @@ index 0000000..baa34c5
 +		}
 +	}
 +}
-diff --git a/experimental/clashapi/trafficontrol/manager.go b/experimental/clashapi/trafficontrol/manager.go
-index 6763436..14c23fb 100644
---- a/experimental/clashapi/trafficontrol/manager.go
-+++ b/experimental/clashapi/trafficontrol/manager.go
-@@ -45,6 +45,7 @@ type Manager struct {
- 	memory                  uint64
- 
- 	eventSubscriber *observable.Subscriber[ConnectionEvent]
-+	closedHook      func(metadata *TrackerMetadata)
- }
- 
- func NewManager() *Manager {
-@@ -55,6 +56,13 @@ func (m *Manager) SetEventHook(subscriber *observable.Subscriber[ConnectionEvent
- 	m.eventSubscriber = subscriber
- }
- 
-+// SetClosedHook registers a callback invoked once for every connection that
-+// leaves the manager, after the close bookkeeping. It runs on the goroutine
-+// closing the connection, so implementations must not block.
-+func (m *Manager) SetClosedHook(hook func(metadata *TrackerMetadata)) {
-+	m.closedHook = hook
-+}
-+
- func (m *Manager) Join(c Tracker) {
- 	metadata := c.Metadata()
- 	m.connections.Store(metadata.ID, c)
-@@ -88,6 +96,9 @@ func (m *Manager) Leave(c Tracker) {
- 				ClosedAt: closedAt,
- 			})
- 		}
-+		if m.closedHook != nil {
-+			m.closedHook(&metadataCopy)
-+		}
- 	}
- }
- 
 diff --git a/option/experimental.go b/option/experimental.go
-index bf0df9e..797d96f 100644
+index 5cf6f51..e1efc50 100644
 --- a/option/experimental.go
 +++ b/option/experimental.go
-@@ -24,6 +24,7 @@ type ClashAPIOptions struct {
+@@ -25,6 +25,7 @@ type ClashAPIOptions struct {
  	ExternalUIDownloadURL            string                     `json:"external_ui_download_url,omitempty"`
- 	ExternalUIDownloadDetour         string                     `json:"external_ui_download_detour,omitempty"`
+ 	ExternalUIDownloadDetour         string                     `json:"external_ui_download_detour,omitempty" reference:"outbound"`
  	Secret                           string                     `json:"secret,omitempty"`
 +	SiteLogPath                      string                     `json:"site_log_path,omitempty"`
  	DefaultMode                      string                     `json:"default_mode,omitempty"`
- 	ModeList                         []string                   `json:"-"`
  	AccessControlAllowOrigin         badoption.Listable[string] `json:"access_control_allow_origin,omitempty"`
+ 	AccessControlAllowPrivateNetwork bool                       `json:"access_control_allow_private_network,omitempty"`

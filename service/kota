@@ -124,10 +124,10 @@ go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(prin
 ensure_go_toolchain(){
   if command -v "$GO_BIN" >/dev/null 2>&1 && go_meets_requirement "$GO_BIN"; then return 0; fi
   if [ -x "$PREFIX/go/bin/go" ] && go_meets_requirement "$PREFIX/go/bin/go"; then GO_BIN="$PREFIX/go/bin/go"; return 0; fi
-  case "$(uname -m)" in x86_64|amd64) arch=amd64; sha=4fa4f869b0f7fc6bb1eb2660e74657fbf04cdd290b5aef905585c86051b34d43;; aarch64|arm64) arch=arm64; sha=fd017e647ec28525e86ae8203236e0653242722a7436929b1f775744e26278e7;; *) return 1;; esac
+  case "$(uname -m)" in x86_64|amd64) arch=amd64; sha=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b;; aarch64|arm64) arch=arm64; sha=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9;; *) return 1;; esac
   update_status running '系统 Go 版本不足，正在准备兼容工具链…'
   archive=$(mktemp) || return 1
-  if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.22.12.linux-${arch}.tar.gz" -o "$archive" || ! printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; return 1; fi
+  if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.25.5.linux-${arch}.tar.gz" -o "$archive" || ! printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; return 1; fi
   rm -rf "$PREFIX/go"
   if ! tar -C "$PREFIX" -xzf "$archive"; then rm -f "$archive"; return 1; fi
   rm -f "$archive"; GO_BIN="$PREFIX/go/bin/go"
@@ -328,6 +328,26 @@ do_update(){
     rm -rf "$source"
     update_status failed '重启失败，已恢复旧版本，请查看服务日志。'
     printf '重启失败，已恢复旧版本。\n' >&2
+    return 1
+  fi
+  # restart 返回 0 只说明进程拉起来了，新版本起来几秒后又崩也测不出来：
+  # 像安装器一样循环健康检查（面板、订阅探针、配置校验 + 两个服务都在运行），
+  # 超时按失败处理：恢复旧版本、不写 commit。
+  update_status running '正在检查新版本是否正常运行…'
+  health_ok=0
+  attempt=0
+  while [ "$attempt" -lt 15 ]; do
+    if "$BIN_DIR/kota" check >/dev/null 2>&1 && running kotaui && running kotaui-singbox; then health_ok=1; break; fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  if [ "$health_ok" = 0 ]; then
+    update_in_progress=0
+    trap - EXIT
+    restore_old_binaries
+    rm -rf "$source"
+    update_status failed '新版本健康检查失败，已恢复旧版本，请查看服务日志。'
+    printf '新版本健康检查失败，已恢复旧版本。\n' >&2
     return 1
   fi
   # 重启成功，更新已生效：不再回滚旧二进制（trap 只保留到临时目录清理完）。

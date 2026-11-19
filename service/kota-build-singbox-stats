@@ -14,7 +14,7 @@ prepare_go_cache() {
 }
 
 DESTINATION=${1:-/opt/kotaui/sing-box-v2ray}
-VERSION=${KOTAUI_SINGBOX_VERSION:-v1.13.18}
+VERSION=${KOTAUI_SINGBOX_VERSION:-v1.14.4}
 SOURCE_URL=${KOTAUI_SINGBOX_SOURCE_URL:-https://github.com/SagerNet/sing-box.git}
 # 集中维护运行协议与用户流量统计所需的 sing-box 编译能力；新增可选协议时只需在此补充对应标签。
 # with_clash_api 是面板必需的：仪表盘实时流量预览和连接关闭记录都走它，
