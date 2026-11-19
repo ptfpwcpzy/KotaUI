@@ -267,8 +267,26 @@ do_update(){
   if ! git clone --depth=1 https://github.com/ptfpwcpzy/KotaUI.git "$source"; then rm -rf "$source"; update_status failed '下载更新失败，请检查网络或更新日志。'; printf '下载更新失败。\n' >&2; return 1; fi
   new_commit=$(git -C "$source" rev-parse HEAD 2>/dev/null || true)
   if ! ensure_go_toolchain; then rm -rf "$source"; update_status failed 'Go 工具链不足或校验失败，请查看更新日志。'; printf 'Go 工具链不足或校验失败，更新已取消。\n' >&2; return 1; fi
-  update_status running '正在构建兼容 sing-box 核心…'
-  if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
+  # 核心指纹：版本号、补丁、构建脚本、构建标签、源码地址与 Go 版本都没变时，
+  # 编出来的核心与已安装的相同，直接沿用，跳过几分钟的编译。指纹文件不存在
+  # （本次改动后的第一次更新）或对不上时正常重编；用了预置核心或自定义补丁
+  # 目录时不跳过。
+  core_fingerprint_file="$PREFIX/sing-box-v2ray.fingerprint"
+  core_fingerprint=$( {
+    printf '%s\n' "VERSION=${KOTAUI_SINGBOX_VERSION:-}"
+    printf '%s\n' "TAGS=${KOTAUI_SINGBOX_BUILD_TAGS:-}"
+    printf '%s\n' "SOURCE=${KOTAUI_SINGBOX_SOURCE_URL:-}"
+    "$GO_BIN" version 2>/dev/null || true
+    sha256sum "$source/service/kota-build-singbox-stats" 2>/dev/null || true
+    if ls "$source/service/patches/"*.patch >/dev/null 2>&1; then sha256sum "$source/service/patches/"*.patch; fi
+  } | sha256sum | cut -d' ' -f1 )
+  if [ -n "$core_fingerprint" ] && [ -z "${KOTAUI_SINGBOX_STATS_CORE:-}" ] && [ -z "${KOTAUI_SINGBOX_PATCH_DIR:-}" ] && [ -x "$PREFIX/sing-box-v2ray" ] && [ -f "$core_fingerprint_file" ] && [ "$(cat "$core_fingerprint_file" 2>/dev/null)" = "$core_fingerprint" ]; then
+    update_status running '核心无变化，跳过重编…'
+    if ! cp -p "$PREFIX/sing-box-v2ray" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '复用已安装核心失败，请查看更新日志。'; printf '复用已安装核心失败，更新已取消。\n' >&2; return 1; fi
+  else
+    update_status running '正在构建兼容 sing-box 核心…'
+    if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
+  fi
   update_status running '正在构建 KotaUI 面板程序…'
   if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在原子替换程序与维护脚本…'
@@ -353,6 +371,9 @@ do_update(){
   # 重启成功，更新已生效：不再回滚旧二进制（trap 只保留到临时目录清理完）。
   update_replaced=0
   if [ -n "${new_commit:-}" ]; then printf '%s\n' "$new_commit" > "$DATA_DIR/installed.commit"; fi
+  # 只有更新真正成功才写指纹：失败回滚后旧核心还在，旧指纹必须保持。
+  # 写不上也不算失败，下次更新重编一次即可。
+  printf '%s\n' "$core_fingerprint" > "$core_fingerprint_file" || true
   rm -rf "$source"
   update_in_progress=0
   trap - EXIT
