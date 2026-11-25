@@ -153,9 +153,30 @@ type Client struct {
 	DailyHistory         []DailyUsage      `json:"dailyHistory,omitempty"`
 	ExpiresAt            string            `json:"expiresAt,omitempty"`
 	MaxOnlineIPs         int               `json:"maxOnlineIps"`
+	SpeedLimitEnabled    bool              `json:"speedLimitEnabled,omitempty"`
+	SpeedLimitKBps       int               `json:"speedLimitKBps,omitempty"`
 	Paused               bool              `json:"paused"`
 	LastActiveAt         time.Time         `json:"lastActiveAt,omitempty"`
 	CreatedAt            time.Time         `json:"createdAt"`
+}
+
+// DefaultSpeedLimitKBps 是勾选限速后未填速度时用的默认值：100 KB/s，
+// 普通 2MB 网页约 20 秒打开，重一点的 30 秒，能上网但刷视频卡。
+const DefaultSpeedLimitKBps = 100
+
+// MaxSpeedLimitKBps 是限速输入框的上限：100000 KB/s（约 800Mbps）。
+const MaxSpeedLimitKBps = 100000
+
+// EffectiveSpeedLimitKBps 返回该用户实际生效的限速（KB/s）：
+// 未开启返回 0；开启但没填速度返回默认值。
+func (c Client) EffectiveSpeedLimitKBps() int {
+	if !c.SpeedLimitEnabled {
+		return 0
+	}
+	if c.SpeedLimitKBps <= 0 {
+		return DefaultSpeedLimitKBps
+	}
+	return c.SpeedLimitKBps
 }
 
 func DefaultState(domain string) State {

@@ -21,6 +21,9 @@ func validateClientInput(client config.Client) error {
 	if client.TotalLimitBytes < 0 || client.MonthlyLimitBytes < 0 || client.MaxOnlineIPs < 0 {
 		return errors.New("流量配额和在线 IP 限制不能小于 0")
 	}
+	if client.SpeedLimitKBps < 0 || client.SpeedLimitKBps > config.MaxSpeedLimitKBps {
+		return fmt.Errorf("限速速度必须在 0–%d KB/s 之间", config.MaxSpeedLimitKBps)
+	}
 	if client.ExpiresAt != "" {
 		if _, err := time.ParseInLocation("2006-01-02", client.ExpiresAt, config.PanelLocation); err != nil {
 			return errors.New("有效期格式无效")

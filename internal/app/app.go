@@ -62,6 +62,9 @@ type App struct {
 	pings               *pingManager
 	backgroundOnce      sync.Once
 	pingRunning         atomic.Bool
+	shaperMu            sync.Mutex
+	shaper              *trafficShaper
+	shaperLastErr       string
 	startedAt           time.Time
 	sniProbe            sniProbeFunc
 	loginMu             sync.Mutex
@@ -124,7 +127,7 @@ func New(runtime config.Runtime) (*App, error) {
 	keyHash := sha256.Sum256([]byte(runtime.AdminPassword + "|" + runtime.DataDir))
 	// Keep the monotonic clock reading from time.Now(); converting to UTC strips
 	// it, which would make panel uptime jump when the system wall clock changes.
-	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 15 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}}, nil
+	return &App{runtime: runtime, store: s, key: keyHash[:], trafficSyncInterval: 15 * time.Second, pings: newPingManager(runtime.DataDir), startedAt: time.Now(), sniProbe: probeSNI, loginFails: map[string]loginAttempt{}, shaper: newTrafficShaper()}, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -212,6 +215,7 @@ func (a *App) backgroundSchedulerLoop() {
 	for tick := 1; ; tick++ {
 		<-ticker.C
 		a.syncTrafficStep()
+		a.syncSpeedLimits()
 		if tick%4 == 2 {
 			relayApplied = a.relayRuleSetWatchStep(relayApplied)
 		}
@@ -746,6 +750,7 @@ func (a *App) clients(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err)
 			return
 		}
+		a.syncSpeedLimits()
 		writeJSON(w, http.StatusCreated, client)
 	default:
 		methodNotAllowed(w)
@@ -788,6 +793,8 @@ func (a *App) clientAction(w http.ResponseWriter, r *http.Request) {
 			badRequest(w, err)
 			return
 		}
+		// 保存后立即同步一次限速：开关拨动后不用等下一拍。
+		a.syncSpeedLimits()
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
@@ -907,6 +914,7 @@ func (a *App) updateClient(id string, request clientCreateRequest) error {
 		target.DailyLimitBytes = incoming.DailyLimitBytes
 		target.ExpiresAt = incoming.ExpiresAt
 		target.MaxOnlineIPs = incoming.MaxOnlineIPs
+		target.SpeedLimitEnabled = incoming.SpeedLimitEnabled
 		if request.RandomSubscriptionSuffix != nil {
 			if *request.RandomSubscriptionSuffix {
 				if target.SubscriptionSuffix == "" {

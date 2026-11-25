@@ -1,0 +1,12 @@
+diff --git a/experimental/clashapi/connections.go b/experimental/clashapi/connections.go
+index 2cf0a71..538741f 100644
+--- a/experimental/clashapi/connections.go
++++ b/experimental/clashapi/connections.go
+@@ -87,6 +87,7 @@ func (c connectionObject) MarshalJSON() ([]byte, error) {
+ 		"metadata": map[string]any{
+ 			"network":         c.Metadata.Network,
+ 			"type":            inbound,
++			"user":            c.Metadata.User,
+ 			"sourceIP":        c.Metadata.Source.Addr,
+ 			"destinationIP":   c.Metadata.Destination.Addr,
+ 			"sourcePort":      F.ToString(c.Metadata.Source.Port),
