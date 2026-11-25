@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net"
 	"net/http"
 	"os/exec"
@@ -20,11 +21,12 @@ import (
 // 保持轻量：最多 20 跳，每跳最多等 1 秒，整体 45 秒封顶；定位只调一次免费接口批量查。
 
 type routeHop struct {
-	IP   string  `json:"ip"`
-	Name string  `json:"name"`
-	Lat  float64 `json:"lat"`
-	Lon  float64 `json:"lon"`
-	Ms   float64 `json:"ms"`
+	IP    string  `json:"ip"`
+	Name  string  `json:"name"`
+	Lat   float64 `json:"lat"`
+	Lon   float64 `json:"lon"`
+	Ms    float64 `json:"ms"`
+	Doubt bool    `json:"doubt,omitempty"`
 }
 
 type routeCacheEntry struct {
@@ -127,20 +129,64 @@ func traceRoute(target string) (map[string]any, error) {
 	geo := geolocateBatch(hopIPs(hops))
 	result := []routeHop{{IP: "server", Name: "服务器", Lat: serverLat, Lon: serverLon, Ms: 0}}
 	for i, h := range hops {
-		name := h.ip
-		lat, lon := 0.0, 0.0
-		if g, ok := geo[h.ip]; ok && g.Status == "success" {
-			lat, lon = g.Lat, g.Lon
-			if n := chineseName(g); n != "" {
-				name = n
-			}
-		}
-		if i == len(hops)-1 {
-			name = "你的位置"
-		}
-		result = append(result, routeHop{IP: h.ip, Name: name, Lat: lat, Lon: lon, Ms: h.ms})
+		g, ok := geo[h.ip]
+		result = append(result, routeDisplayHop(h, g, ok, serverLat, serverLon, i == len(hops)-1))
 	}
 	return map[string]any{"viewerIp": target, "hops": result}, nil
+}
+
+// 光在光纤里每毫秒往返约 100 公里：延迟 ms 的一跳，离服务器不可能超过 ms*100 公里。
+// 再放 200 公里余量（归属地给的是城市中心坐标、服务器自身定位也有误差）。
+// 超出这个距离的归属地在物理上不可能，判定存疑。
+const (
+	routeKmPerMs = 100.0
+	routeSlackKm = 200.0
+)
+
+// haversineKm 返回两点间的大圆距离（公里）。
+func haversineKm(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadiusKm = 6371.0
+	dLat := (lat2 - lat1) * math.Pi / 180
+	dLon := (lon2 - lon1) * math.Pi / 180
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*math.Pi/180)*math.Cos(lat2*math.Pi/180)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * earthRadiusKm * math.Asin(math.Sqrt(a))
+}
+
+// routeLocationDoubtful 判断归属地是否与延迟矛盾：按延迟算出的最远距离
+// 都到不了归属地标的位置，就是库标错了。服务器自身位置未知、
+// 或这一跳本来就没定位时无法校验，返回不存疑。
+func routeLocationDoubtful(serverLat, serverLon, ms, lat, lon float64) bool {
+	if serverLat == 0 && serverLon == 0 {
+		return false
+	}
+	if lat == 0 && lon == 0 {
+		return false
+	}
+	return haversineKm(serverLat, serverLon, lat, lon) > ms*routeKmPerMs+routeSlackKm
+}
+
+// 一跳的展示：归属地先过延迟校验，对不上物理规律就降级——只显示 IP、
+// 不上地图，避免把路线画到澳洲去。最后一跳（你的位置）是整张卡的终点，始终保留。
+func routeDisplayHop(h tracedHop, g ipGeo, located bool, serverLat, serverLon float64, isLast bool) routeHop {
+	name := h.ip
+	lat, lon := 0.0, 0.0
+	doubt := false
+	if located && g.Status == "success" {
+		lat, lon = g.Lat, g.Lon
+		if n := chineseName(g); n != "" {
+			name = n
+		}
+		if !isLast && routeLocationDoubtful(serverLat, serverLon, h.ms, lat, lon) {
+			doubt = true
+			name = h.ip
+			lat, lon = 0, 0
+		}
+	}
+	if isLast {
+		name = "你的位置"
+	}
+	return routeHop{IP: h.ip, Name: name, Lat: lat, Lon: lon, Ms: h.ms, Doubt: doubt}
 }
 
 func hopIPs(hops []tracedHop) []string {
