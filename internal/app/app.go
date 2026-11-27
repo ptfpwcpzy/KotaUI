@@ -127,6 +127,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/assets/xterm.css", embeddedAsset("web/xterm.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("/assets/xterm-addon-fit.js", embeddedAsset("web/xterm-addon-fit.js", "application/javascript; charset=utf-8"))
 	mux.HandleFunc("/assets/kotaui-logo.png", embeddedAsset("web/kotaui-logo.png", "image/png"))
+	mux.HandleFunc("/assets/wallpaper.jpg", embeddedAsset("web/wallpaper.jpg", "image/jpeg"))
 	mux.HandleFunc("/favicon.ico", embeddedAsset("web/kotaui-logo.png", "image/png"))
 	mux.HandleFunc(a.runtime.PanelPath, a.panel)
 	mux.HandleFunc(a.runtime.PanelPath+"/", a.panel)
