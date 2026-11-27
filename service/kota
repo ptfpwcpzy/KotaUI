@@ -140,10 +140,24 @@ ensure_go_toolchain(){
   case "$(uname -m)" in x86_64|amd64) arch=amd64; sha=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec;; aarch64|arm64) arch=arm64; sha=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e;; *) return 1;; esac
   update_status running '系统 Go 版本不足，正在准备兼容工具链…'
   archive=$(mktemp) || return 1
-  if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.26.11.linux-${arch}.tar.gz" -o "$archive" || ! printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; return 1; fi
-  rm -rf "$PREFIX/go"
-  if ! tar -C "$PREFIX" -xzf "$archive"; then rm -f "$archive"; return 1; fi
-  rm -f "$archive"; GO_BIN="$PREFIX/go/bin/go"
+  installed=0
+  if curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.26.11.linux-${arch}.tar.gz" -o "$archive" && printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then
+    installed=1
+  elif curl -fsSL --retry 3 --connect-timeout 10 "https://dl.google.com/go/go1.26.11.linux-${arch}.tar.gz" -o "$archive" && printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then
+    installed=1
+  fi
+  if [ "$installed" = 1 ]; then
+    rm -rf "$PREFIX/go"
+    if ! tar -C "$PREFIX" -xzf "$archive"; then rm -f "$archive"; return 1; fi
+    rm -f "$archive"; GO_BIN="$PREFIX/go/bin/go"
+    if go_meets_requirement "$GO_BIN"; then return 0; else return 1; fi
+  fi
+  rm -f "$archive"
+  if ! command -v "$GO_BIN" >/dev/null 2>&1; then return 1; fi
+  if ! GOTOOLCHAIN=go1.26.11 GOPROXY="${KOTAUI_GOPROXY:-https://goproxy.cn,direct}" "$GO_BIN" version >/dev/null 2>&1; then return 1; fi
+  modcache=$(GOTOOLCHAIN=go1.26.11 GOPROXY="${KOTAUI_GOPROXY:-https://goproxy.cn,direct}" "$GO_BIN" env GOMODCACHE 2>/dev/null) || return 1
+  GO_BIN="$modcache/golang.org/toolchain@v1.26.11/bin/go"
+  [ -x "$GO_BIN" ] || return 1
   go_meets_requirement "$GO_BIN"
 }
 

@@ -241,17 +241,31 @@ prepare_go_toolchain(){
 	esac
 	command -v sha256sum >/dev/null 2>&1 || fail '未找到 sha256sum，无法校验 Go 工具链。'
 	archive=$(mktemp)
-	task "下载 Go ${GO_VERSION} 工具链" curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o "$archive" \
-		|| { rm -f "$archive"; fail '下载 Go 工具链失败。'; }
-	if ! printf '%s  %s\n' "$GO_SHA256" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; fail 'Go 工具链校验失败。'; fi
-	parent=$(dirname "$GO_TOOLCHAIN_DIR")
-	install -d -m 755 "$parent"
-	rm -rf "$GO_TOOLCHAIN_DIR" "$parent/go"
-	task "解压 Go 工具链" tar -C "$parent" -xzf "$archive" \
-		|| { rm -f "$archive"; fail '解压 Go 工具链失败。'; }
+	installed=0
+	if task "下载 Go ${GO_VERSION} 工具链" curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o "$archive" && printf '%s  %s\n' "$GO_SHA256" "$archive" | sha256sum -c - >/dev/null; then
+		installed=1
+	elif task "下载 Go ${GO_VERSION} 工具链（备用源）" curl -fsSL --retry 3 --connect-timeout 10 "https://dl.google.com/go/${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o "$archive" && printf '%s  %s\n' "$GO_SHA256" "$archive" | sha256sum -c - >/dev/null; then
+		installed=1
+	fi
+	if [ "$installed" = 1 ]; then
+		parent=$(dirname "$GO_TOOLCHAIN_DIR")
+		install -d -m 755 "$parent"
+		rm -rf "$GO_TOOLCHAIN_DIR" "$parent/go"
+		task "解压 Go 工具链" tar -C "$parent" -xzf "$archive" \
+			|| { rm -f "$archive"; fail '解压 Go 工具链失败。'; }
+		rm -f "$archive"
+		if [ "$GO_TOOLCHAIN_DIR" != "$parent/go" ]; then mv "$parent/go" "$GO_TOOLCHAIN_DIR"; fi
+		GO_BIN="$GO_TOOLCHAIN_DIR/bin/go"
+		go_meets_requirement "$GO_BIN" || fail 'Go 工具链版本不符合项目要求。'
+		sub_ok "Go 工具链 ${GO_VERSION} 就绪。"
+		return 0
+	fi
 	rm -f "$archive"
-	if [ "$GO_TOOLCHAIN_DIR" != "$parent/go" ]; then mv "$parent/go" "$GO_TOOLCHAIN_DIR"; fi
-	GO_BIN="$GO_TOOLCHAIN_DIR/bin/go"
+	if ! command -v go >/dev/null 2>&1; then fail '下载 Go 工具链失败。'; fi
+	if ! GOTOOLCHAIN="${GO_VERSION}" GOPROXY="${KOTAUI_GOPROXY:-https://goproxy.cn,direct}" go version >/dev/null 2>&1; then fail '下载 Go 工具链失败。'; fi
+	modcache=$(GOTOOLCHAIN="${GO_VERSION}" GOPROXY="${KOTAUI_GOPROXY:-https://goproxy.cn,direct}" go env GOMODCACHE 2>/dev/null) || fail '下载 Go 工具链失败。'
+	GO_BIN="$modcache/golang.org/toolchain@v${GO_VERSION#go}/bin/go"
+	[ -x "$GO_BIN" ] || fail '下载 Go 工具链失败。'
 	go_meets_requirement "$GO_BIN" || fail 'Go 工具链版本不符合项目要求。'
 	sub_ok "Go 工具链 ${GO_VERSION} 就绪。"
 }
