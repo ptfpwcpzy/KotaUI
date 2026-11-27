@@ -13,6 +13,7 @@ import (
 
 type Store struct {
 	path string
+	key  [32]byte
 	mu   sync.RWMutex
 	data config.State
 }
@@ -21,8 +22,12 @@ func Open(dataDir, domain string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return nil, err
 	}
+	key, err := loadOrCreateKey(dataDir)
+	if err != nil {
+		return nil, err
+	}
 	path := filepath.Join(dataDir, "state.json")
-	s := &Store{path: path}
+	s := &Store{path: path, key: key}
 	bytes, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		s.data = config.DefaultState(domain)
@@ -31,32 +36,64 @@ func Open(dataDir, domain string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(bytes, &s.data); err != nil {
+	data, migrated, _, err := s.loadState(bytes)
+	if err != nil {
 		// 主文件已损坏：尝试用上一份备份启动，只有两者都坏才报错。
+		// 但主文件是解密失败（不是 JSON 损坏）时，备份里必须有能解开的
+		// 密文才算回退成功——否则可能是密钥丢了/换了，静默回退到一份
+		// 不含敏感字段的旧备份等于悄悄丢数据，不如直接报错。
 		bakBytes, bakErr := os.ReadFile(s.path + ".bak")
 		if bakErr != nil {
 			return nil, err
 		}
-		var bakData config.State
-		if bakErr := json.Unmarshal(bakBytes, &bakData); bakErr != nil {
+		bakData, bakMigrated, bakCipher, bakErr := s.loadState(bakBytes)
+		if bakErr != nil {
+			return nil, err
+		}
+		if errors.Is(err, errDecrypt) && !bakCipher {
 			return nil, err
 		}
 		log.Printf("store: state.json is corrupt (%v); recovered from state.json.bak", err)
-		s.data = bakData
+		data, migrated = bakData, bakMigrated
 	}
+	s.data = data
 	if s.data.Inbounds == nil {
 		s.data.Inbounds = []config.Inbound{}
 	}
 	if s.data.Clients == nil {
 		s.data.Clients = []config.Client{}
 	}
+	needsSave := migrated
 	if s.data.TrafficCounters == nil {
 		s.data.TrafficCounters = map[string]config.TrafficCounters{}
+		needsSave = true
+	}
+	// 旧明文文件读到这里已是明文内存态，立刻存一份加密的回去；
+	// 备份也是加密的（见 backup），磁盘上不再留明文。
+	if needsSave {
 		if err := s.saveLocked(); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
+}
+
+// errDecrypt 表示落盘密文解不开（密钥不对或密文损坏），与 JSON 损坏区分开。
+var errDecrypt = errors.New("store: cannot decrypt state")
+
+// loadState 把一份落盘 state.json 内容解成内存态：
+// JSON 损坏、密文损坏、密钥不对都返回错误，不静默丢数据。
+// 返回值依次是内存态、是否含旧明文字段、是否含密文字段。
+func (s *Store) loadState(bytes []byte) (config.State, bool, bool, error) {
+	var disk config.State
+	if err := json.Unmarshal(bytes, &disk); err != nil {
+		return config.State{}, false, false, err
+	}
+	decrypted, migrated, cipher, err := decryptState(s.key, disk)
+	if err != nil {
+		return config.State{}, false, false, errors.Join(errDecrypt, err)
+	}
+	return decrypted, migrated, cipher, nil
 }
 
 func (s *Store) Snapshot() config.State {
@@ -119,7 +156,12 @@ func (s *Store) saveLocked() error {
 }
 
 func (s *Store) save(state config.State) error {
-	body, err := json.MarshalIndent(state, "", "  ")
+	// 只加密落盘那份，内存态保持明文；调用方传进来的 state 不改。
+	encrypted, err := encryptState(s.key, state)
+	if err != nil {
+		return err
+	}
+	body, err := json.MarshalIndent(encrypted, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -139,6 +181,8 @@ func (s *Store) save(state config.State) error {
 }
 
 // backup 把现有 state.json 拷一份到 state.json.bak；主文件不存在时不做任何事。
+// 旧明文备份先加密再写，磁盘上不留明文备份；已加密的直接原样拷；
+// 读不懂的旧文件（已损坏）原样拷，不丢数据。
 func (s *Store) backup() error {
 	body, err := os.ReadFile(s.path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -146,6 +190,16 @@ func (s *Store) backup() error {
 	}
 	if err != nil {
 		return err
+	}
+	var disk config.State
+	if err := json.Unmarshal(body, &disk); err == nil && hasPlaintext(disk) {
+		encrypted, err := encryptState(s.key, disk)
+		if err != nil {
+			return err
+		}
+		if encBody, err := json.MarshalIndent(encrypted, "", "  "); err == nil {
+			body = encBody
+		}
 	}
 	return writeFileSync(s.path+".bak", body, 0600)
 }
