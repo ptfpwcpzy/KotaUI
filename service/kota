@@ -133,7 +133,7 @@ page_head(){
 dot(){ if [ "$1" = 0 ]; then printf '%s●%s' "$C_GREEN" "$C_RST"; else printf '%s●%s' "$C_RED" "$C_RST"; fi; }
 
 update_status(){ [ "${KOTAUI_PANEL_UPDATE:-}" = 1 ] || return 0; install -d -m 700 "$DATA_DIR"; update_run_id="${KOTAUI_UPDATE_RUN_ID:-}"; case "$update_run_id" in ''|*[!0-9]*) update_run_id="";; esac; temporary="$DATA_DIR/update.status.tmp.$$"; printf '{"runId":"%s","state":"%s","message":"%s","updatedAt":%s}\n' "$update_run_id" "$1" "$2" "$(date +%s)" > "$temporary" && mv -f "$temporary" "$DATA_DIR/update.status"; }
-go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p'); [ -n "$minor" ] && [ "$minor" -ge 22 ]; }
+go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p'); [ -n "$minor" ] && [ "$minor" -ge 25 ]; }
 ensure_go_toolchain(){
   if command -v "$GO_BIN" >/dev/null 2>&1 && go_meets_requirement "$GO_BIN"; then return 0; fi
   if [ -x "$PREFIX/go/bin/go" ] && go_meets_requirement "$PREFIX/go/bin/go"; then GO_BIN="$PREFIX/go/bin/go"; return 0; fi
@@ -359,10 +359,10 @@ do_update(){
     if ! cp -p "$PREFIX/sing-box-v2ray" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '复用已安装核心失败，请查看更新日志。'; printf '复用已安装核心失败，更新已取消。\n' >&2; return 1; fi
   else
     update_status running '正在构建兼容 sing-box 核心…'
-    if ! KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
+    if ! GOTOOLCHAIN=local KOTAUI_GO_BIN="$GO_BIN" sh "$source/service/kota-build-singbox-stats" "$source/sing-box-v2ray"; then rm -rf "$source"; update_status failed '兼容 sing-box 核心构建失败，请查看更新日志。'; printf '兼容 sing-box 核心构建失败，更新已取消。\n' >&2; return 1; fi
   fi
   update_status running '正在构建 KotaUI 面板程序…'
-  if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
+  if ! command -v "$GO_BIN" >/dev/null 2>&1 || ! (cd "$source" && CGO_ENABLED=0 GOTOOLCHAIN=local "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$source/kotaui" ./cmd/kotaui); then rm -rf "$source"; update_status failed '面板程序构建失败，请查看更新日志。'; printf '编译更新失败，更新已取消。\n' >&2; return 1; fi
   update_status running '正在原子替换程序与维护脚本…'
   # 从替换开始，任何异常退出（set -e 下任何一步失败）都走兜底：恢复旧二进制、
   # 清理临时源码目录、报 failed，避免服务停机、状态卡在 running。

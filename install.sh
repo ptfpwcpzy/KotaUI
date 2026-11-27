@@ -228,7 +228,7 @@ validate_path(){ case "$1" in ''|*[!A-Za-z0-9_-]*) return 1;; esac; [ "${#1}" -l
 go_meets_requirement(){
 	output=$("$1" version 2>/dev/null || true)
 	minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p')
-	[ -n "$minor" ] && [ "$minor" -ge 22 ]
+	[ -n "$minor" ] && [ "$minor" -ge 25 ]
 }
 
 prepare_go_toolchain(){
@@ -380,7 +380,7 @@ acquire_certificate(){
   sub_ok "证书已就绪并已链接到 KotaUI。"
 }
 
-_build_panel(){ (cd "$SOURCE_DIR" && CGO_ENABLED=0 "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui); }
+_build_panel(){ (cd "$SOURCE_DIR" && CGO_ENABLED=0 GOTOOLCHAIN=local "$GO_BIN" build -trimpath -ldflags='-s -w' -o "$PREFIX/kotaui" ./cmd/kotaui); }
 
 install_program(){
   if [ -z "$SOURCE_DIR" ]; then
@@ -402,7 +402,7 @@ install_program(){
   prepare_go_cache
   prepare_go_toolchain
   task "编译面板核心" _build_panel || fail '面板编译失败。'
-  task "构建流量统计核心" env KOTAUI_GO_BIN="$GO_BIN" "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray" || fail '流量统计核心构建失败。'
+  task "构建流量统计核心" env GOTOOLCHAIN=local KOTAUI_GO_BIN="$GO_BIN" "$PREFIX/bin/kota-build-singbox-stats" "$PREFIX/sing-box-v2ray" || fail '流量统计核心构建失败。'
   cat > "$DATA_DIR/runtime.env" <<EOF
 KOTAUI_DATA_DIR=$DATA_DIR
 KOTAUI_LISTEN=0.0.0.0:$PANEL_PORT
