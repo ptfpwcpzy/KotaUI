@@ -133,14 +133,14 @@ page_head(){
 dot(){ if [ "$1" = 0 ]; then printf '%s●%s' "$C_GREEN" "$C_RST"; else printf '%s●%s' "$C_RED" "$C_RST"; fi; }
 
 update_status(){ [ "${KOTAUI_PANEL_UPDATE:-}" = 1 ] || return 0; install -d -m 700 "$DATA_DIR"; update_run_id="${KOTAUI_UPDATE_RUN_ID:-}"; case "$update_run_id" in ''|*[!0-9]*) update_run_id="";; esac; temporary="$DATA_DIR/update.status.tmp.$$"; printf '{"runId":"%s","state":"%s","message":"%s","updatedAt":%s}\n' "$update_run_id" "$1" "$2" "$(date +%s)" > "$temporary" && mv -f "$temporary" "$DATA_DIR/update.status"; }
-go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p'); [ -n "$minor" ] && [ "$minor" -ge 25 ]; }
+go_meets_requirement(){ output=$("$1" version 2>/dev/null || true); minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p'); [ -n "$minor" ] && [ "$minor" -ge 26 ]; }
 ensure_go_toolchain(){
   if command -v "$GO_BIN" >/dev/null 2>&1 && go_meets_requirement "$GO_BIN"; then return 0; fi
   if [ -x "$PREFIX/go/bin/go" ] && go_meets_requirement "$PREFIX/go/bin/go"; then GO_BIN="$PREFIX/go/bin/go"; return 0; fi
-  case "$(uname -m)" in x86_64|amd64) arch=amd64; sha=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b;; aarch64|arm64) arch=arm64; sha=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9;; *) return 1;; esac
+  case "$(uname -m)" in x86_64|amd64) arch=amd64; sha=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec;; aarch64|arm64) arch=arm64; sha=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e;; *) return 1;; esac
   update_status running '系统 Go 版本不足，正在准备兼容工具链…'
   archive=$(mktemp) || return 1
-  if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.25.5.linux-${arch}.tar.gz" -o "$archive" || ! printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; return 1; fi
+  if ! curl -fsSL --retry 3 --connect-timeout 10 "https://go.dev/dl/go1.26.11.linux-${arch}.tar.gz" -o "$archive" || ! printf '%s  %s\n' "$sha" "$archive" | sha256sum -c - >/dev/null; then rm -f "$archive"; return 1; fi
   rm -rf "$PREFIX/go"
   if ! tar -C "$PREFIX" -xzf "$archive"; then rm -f "$archive"; return 1; fi
   rm -f "$archive"; GO_BIN="$PREFIX/go/bin/go"

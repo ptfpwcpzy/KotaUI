@@ -203,7 +203,7 @@ CERT_SUBJECT=${KOTAUI_CERT_SUBJECT:-}
 CERT_EMAIL=${KOTAUI_CERT_EMAIL:-}
 CERTBOT_BIN=${KOTAUI_CERTBOT_BIN:-certbot}
 GO_BIN=${KOTAUI_GO_BIN:-}
-GO_VERSION=${KOTAUI_GO_VERSION:-go1.25.5}
+GO_VERSION=${KOTAUI_GO_VERSION:-go1.26.11}
 GO_TOOLCHAIN_DIR=${KOTAUI_GO_TOOLCHAIN_DIR:-$PREFIX/go}
 
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' '请使用 root 身份运行安装器。' >&2; exit 1; }
@@ -228,15 +228,15 @@ validate_path(){ case "$1" in ''|*[!A-Za-z0-9_-]*) return 1;; esac; [ "${#1}" -l
 go_meets_requirement(){
 	output=$("$1" version 2>/dev/null || true)
 	minor=$(printf '%s' "$output" | sed -n 's/.* go1\.\([0-9][0-9]*\)\..*/\1/p')
-	[ -n "$minor" ] && [ "$minor" -ge 25 ]
+	[ -n "$minor" ] && [ "$minor" -ge 26 ]
 }
 
 prepare_go_toolchain(){
 	if [ -n "$GO_BIN" ] && command -v "$GO_BIN" >/dev/null 2>&1 && go_meets_requirement "$GO_BIN"; then return 0; fi
 	if command -v go >/dev/null 2>&1 && go_meets_requirement go; then GO_BIN=$(command -v go); return 0; fi
 	case "$(uname -m)" in
-		x86_64|amd64) GO_ARCH=amd64; GO_SHA256=9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b;;
-		aarch64|arm64) GO_ARCH=arm64; GO_SHA256=b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9;;
+		x86_64|amd64) GO_ARCH=amd64; GO_SHA256=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec;;
+		aarch64|arm64) GO_ARCH=arm64; GO_SHA256=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e;;
 		*) fail "当前 CPU 架构 $(uname -m) 未提供受控 Go 工具链。";;
 	esac
 	command -v sha256sum >/dev/null 2>&1 || fail '未找到 sha256sum，无法校验 Go 工具链。'

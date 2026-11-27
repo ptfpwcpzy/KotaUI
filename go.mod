@@ -1,17 +1,17 @@
 module github.com/ptfpwcpzy/KotaUI
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/creack/pty v1.1.24
 	github.com/gorilla/websocket v1.5.3
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.63.0
 	google.golang.org/grpc v1.84.0
 )
 
 require (
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
