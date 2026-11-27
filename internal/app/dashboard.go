@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ptfpwcpzy/KotaUI/internal/config"
+	"github.com/ptfpwcpzy/KotaUI/internal/system"
 )
 
 type certificateInfo struct {
@@ -417,4 +418,67 @@ func hasSystemd() bool {
 		return false
 	}
 	return true
+}
+
+func (a *App) state(w http.ResponseWriter, _ *http.Request) {
+	a.resetMonth()
+	a.syncTraffic()
+	writeJSON(w, http.StatusOK, a.store.Snapshot())
+}
+
+func (a *App) dashboard(w http.ResponseWriter, _ *http.Request) {
+	a.resetMonth()
+	a.syncTraffic()
+	s := a.store.Snapshot()
+	aggregateSiteRecords(a.runtime.DataDir, s.Settings.Relay.Username, s.Settings.Domain, false, s.Settings.SiteDetailEnabled)
+	liveSites := []string{}
+	if s.Settings.SiteDetailEnabled {
+		liveSites = liveSiteIcons(a.runtime.DataDir, a.runtime.StatsPort)
+	}
+	active, totalUsed, monthlyUsed, monthlyDownload := 0, int64(0), int64(0), int64(0)
+	ports := make([]int, 0, len(s.Inbounds))
+	for _, inbound := range s.Inbounds {
+		if inbound.Enabled {
+			ports = append(ports, inbound.Port)
+		}
+	}
+	for _, client := range s.Clients {
+		if client.Active(time.Now()) {
+			active++
+		}
+		totalUsed += client.UsedBytes
+		monthlyUsed += client.MonthlyUsedBytes
+		monthlyDownload += client.MonthlyDownloadBytes
+	}
+	certificate := certificateStatus(a.runtime.TLSCert)
+	services := []map[string]any{
+		{"id": "panel", "name": "KotaUI 面板", "running": serviceRunning("kotaui")},
+		{"id": "singbox", "name": "sing-box 核心", "running": serviceRunning("kotaui-singbox")},
+	}
+	uptimeNow := time.Now()
+	bootSeconds := procBootSeconds()
+	hostIPv4, hostIPv6 := hostAddresses()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"hostIPv4":            hostIPv4,
+		"hostIPv6":            hostIPv6,
+		"metrics":             system.Collect(a.runtime.DataDir, ports),
+		"activeClients":       active,
+		"onlineUsers":         recentOnlineUsers(s.Clients, time.Now()),
+		"panelUptime":         panelUptimeSeconds(a.startedAt, bootSeconds),
+		"coreUptime":          coreUptimeSeconds(uptimeNow, bootSeconds),
+		"inboundCount":        len(s.Inbounds),
+		"clientCount":         len(s.Clients),
+		"totalUsed":           totalUsed,
+		"monthlyUsed":         monthlyUsed,
+		"monthlyDownload":     monthlyDownload,
+		"panelURL":            a.panelURL(),
+		"subscriptionBaseURL": a.subscriptionBaseURL(s.Settings.SubscriptionPath),
+		"version":             config.Version,
+		"certificate":         certificate,
+		"services":            services,
+		"healthHints":         dashboardHints(s, certificate, services),
+		"dailyTraffic":        lastSevenDays(s, time.Now()),
+		"dailyTrafficByUser":  dailyTrafficByUser(s, time.Now()),
+		"liveSites":           liveSites,
+	})
 }

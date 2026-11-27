@@ -295,12 +295,20 @@ choose_panel(){
   idone "2/6" "设置面板访问参数" "${PANEL_PORT} · /${PANEL_PATH}"
 }
 
-# 账号/密码规则：3-20 个常规字符（字母、数字及 _ . - @）。
+# 账号规则：3-20 个常规字符（字母、数字及 _ . - @）；密码规则：6-20 个常规字符。
 valid_credential(){
   case "$1" in
     ''|*[!A-Za-z0-9_.@-]*) return 1;;
   esac
   [ "${#1}" -ge 3 ] && [ "${#1}" -le 20 ]
+}
+
+# 密码规则：6-20 个常规字符（字母、数字及 _ . - @）。
+valid_password(){
+  case "$1" in
+    ''|*[!A-Za-z0-9_.@-]*) return 1;;
+  esac
+  [ "${#1}" -ge 6 ] && [ "${#1}" -le 20 ]
 }
 
 choose_admin(){
@@ -313,8 +321,8 @@ choose_admin(){
   done
   while :; do
     [ -n "$ADMIN_PASSWORD" ] || ADMIN_PASSWORD=$(ask '    管理员密码（输入内容会显示，仅输入一次）： ')
-    if valid_credential "$ADMIN_PASSWORD"; then break; fi
-    warn '密码需为 3-20 个字符，仅支持字母、数字及 _ . - @。'
+    if valid_password "$ADMIN_PASSWORD"; then break; fi
+    warn '密码需为 6-20 个字符，仅支持字母、数字及 _ . - @。'
     ADMIN_PASSWORD=
   done
   idone "3/6" "设置管理员账号和密码" "$ADMIN_USER"

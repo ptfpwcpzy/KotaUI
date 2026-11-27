@@ -337,3 +337,151 @@ func (a *App) reloadCoreConfig() {
 		}()
 	}
 }
+
+func totalClientUsage(state config.State) int64 {
+	var total int64
+	for _, client := range state.Clients {
+		total += client.UsedBytes
+	}
+	return total
+}
+
+func (a *App) resetMonth() {
+	if a.updateIsRunning() || a.settingsApplyInProgress() {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	current := time.Now().Format("2006-01")
+	snapshot := a.store.Snapshot()
+	needsReset := false
+	for _, client := range snapshot.Clients {
+		if client.Month != current {
+			needsReset = true
+			break
+		}
+	}
+	if !needsReset {
+		return
+	}
+	if err := a.store.UpdateWith(func(s *config.State) error {
+		for i := range s.Clients {
+			if s.Clients[i].Month != current {
+				s.Clients[i].Month = current
+				s.Clients[i].MonthlyUsedBytes = 0
+				s.Clients[i].MonthlyDownloadBytes = 0
+			}
+		}
+		return nil
+	}, func(candidate config.State) error {
+		return writeAndValidateConfig(candidate, a.runtime)
+	}); err != nil {
+		return
+	}
+	go func() {
+		if err := a.restartManagedSingBox(); err != nil {
+			log.Printf("sing-box 核心重启失败: %v", err)
+		}
+	}()
+}
+
+func (a *App) recordDailyUsage(totalUsed int64, now time.Time) {
+	today := now.In(config.PanelLocation).Format("2006-01-02")
+	// Dashboard is polled frequently; avoid rewriting state.json on every
+	// request while the current daily bucket is unchanged.
+	if current := a.store.Snapshot(); current.DailyDate == today {
+		return
+	}
+	// Daily usage bookkeeping never touches the generated sing-box config,
+	// so persist without restarting the core.
+	_ = a.persistStateOnly(func(s *config.State) error {
+		if s.DailyDate == "" {
+			s.DailyDate = today
+			s.DailyAnchor = totalUsed
+			return nil
+		}
+		if s.DailyDate == today {
+			return nil
+		}
+		delta := totalUsed - s.DailyAnchor
+		if delta < 0 {
+			delta = 0
+		}
+		s.DailyUsage = append(s.DailyUsage, config.DailyUsage{Date: s.DailyDate, Bytes: delta})
+		if len(s.DailyUsage) > 14 {
+			s.DailyUsage = s.DailyUsage[len(s.DailyUsage)-14:]
+		}
+		s.DailyDate = today
+		s.DailyAnchor = totalUsed
+		return nil
+	})
+}
+
+func lastSevenDays(s config.State, now time.Time) []map[string]any {
+	byDate := map[string]int64{}
+	for _, row := range s.DailyUsage {
+		byDate[row.Date] = row.Bytes
+	}
+	out := make([]map[string]any, 0, 15)
+	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
+	for i := 14; i >= 0; i-- {
+		day := base.AddDate(0, 0, -i).Format("2006-01-02")
+		bytes := byDate[day]
+		if day == s.DailyDate {
+			delta := int64(0)
+			for _, client := range s.Clients {
+				delta += client.UsedBytes
+			}
+			delta -= s.DailyAnchor
+			if delta < 0 {
+				delta = 0
+			}
+			bytes = delta
+		}
+		out = append(out, map[string]any{"date": day, "bytes": bytes})
+	}
+	return out
+}
+
+func dailyTrafficByUser(s config.State, now time.Time) []map[string]any {
+	// 保持客户端列表顺序：图例按此顺序排列，堆叠柱自下而上也是此顺序
+	clients := s.Clients
+	out := make([]map[string]any, 0, 31)
+	base := time.Date(now.In(config.PanelLocation).Year(), now.In(config.PanelLocation).Month(), now.In(config.PanelLocation).Day(), 0, 0, 0, 0, config.PanelLocation)
+	// 显示最近一个月：天数按当月天数取 28–31 天
+	days := time.Date(base.Year(), base.Month()+1, 0, 0, 0, 0, 0, config.PanelLocation).Day()
+	for i := days - 1; i >= 0; i-- {
+		day := base.AddDate(0, 0, -i).Format("2006-01-02")
+		users := make([]map[string]any, 0, len(clients))
+		for _, client := range clients {
+			var b int64
+			if day == client.DailyDate {
+				b = client.DailyUsedBytes
+			} else {
+				for _, h := range client.DailyHistory {
+					if h.Date == day {
+						b = h.Bytes
+						break
+					}
+				}
+			}
+			users = append(users, map[string]any{"username": client.Username, "bytes": b})
+		}
+		if s.Settings.Relay.Enabled && s.Settings.Relay.Role == "landing" {
+			var b int64
+			if day == s.RelayTraffic.DailyDate {
+				b = s.RelayTraffic.DailyUsedBytes
+			} else {
+				for _, h := range s.RelayTraffic.DailyHistory {
+					if h.Date == day {
+						b = h.Bytes
+						break
+					}
+				}
+			}
+			users = append(users, map[string]any{"username": "中转主机A", "bytes": b})
+		}
+		out = append(out, map[string]any{"date": day, "users": users})
+	}
+	return out
+}

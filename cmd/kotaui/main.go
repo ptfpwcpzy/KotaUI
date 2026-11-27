@@ -78,8 +78,8 @@ func loadRuntime() (config.Runtime, error) {
 	if adminUser == "" {
 		return config.Runtime{}, fmt.Errorf("管理员账号不能为空")
 	}
-	if adminPassword == "change-me" || utf8.RuneCountInString(adminPassword) < 8 {
-		return config.Runtime{}, fmt.Errorf("管理员密码至少需要 8 个字符，且不能使用默认密码")
+	if adminPassword == "change-me" || utf8.RuneCountInString(adminPassword) < 6 {
+		return config.Runtime{}, fmt.Errorf("管理员密码至少需要 6 个字符，且不能使用默认密码")
 	}
 	domain := strings.TrimSpace(value("KOTAUI_DOMAIN", "127.0.0.1"))
 	if domain == "" {

@@ -190,6 +190,59 @@ panel_login_info(){
   pause
 }
 
+change_admin_login(){
+  clear_screen
+  page_head '修改登录账号密码'
+  printf '  当前账号： %s\n' "${KOTAUI_ADMIN_USER:-}"
+  new_user=${KOTAUI_ADMIN_USER:-}
+  while :; do
+    printf '  新账号（回车不变）： '; IFS= read -r input || true
+    [ -z "$input" ] && break
+    case "$input" in *[!A-Za-z0-9_.@-]*) printf '  账号格式不对，3-20 位字母、数字及 _ . - @。\n'; continue;; esac
+    [ "${#input}" -ge 3 ] && [ "${#input}" -le 20 ] || { printf '  账号格式不对，3-20 位字母、数字及 _ . - @。\n'; continue; }
+    new_user=$input
+    break
+  done
+  new_pass=${KOTAUI_ADMIN_PASSWORD:-}
+  pw_changed=0
+  while :; do
+    printf '  新密码（回车不变）： '; IFS= read -r pw1 || true
+    [ -z "${pw1:-}" ] && break
+    printf '  再次输入新密码： '; IFS= read -r pw2 || true
+    if [ "${pw1:-}" != "${pw2:-}" ]; then printf '  两次密码不一致。\n'; continue; fi
+    case "$pw1" in *[!A-Za-z0-9_.@-]*) printf '  密码格式不对，6-20 位字母、数字及 _ . - @。\n'; continue;; esac
+    [ "${#pw1}" -ge 6 ] && [ "${#pw1}" -le 20 ] || { printf '  密码格式不对，6-20 位字母、数字及 _ . - @。\n'; continue; }
+    new_pass=$pw1
+    pw_changed=1
+    break
+  done
+  pw1=''; pw2=''
+  if [ "$new_user" = "${KOTAUI_ADMIN_USER:-}" ] && [ "$pw_changed" = 0 ]; then
+    printf '  未改动。\n'; pause; return 0
+  fi
+  printf '  新账号： %s\n' "$new_user"
+  printf '  确认修改？[y/N]： '; IFS= read -r answer || true
+  case "$answer" in y|Y) ;; *) printf '  已取消。\n'; pause; return 0;; esac
+  cp -p "$RUNTIME_ENV" "$RUNTIME_ENV.bak" || { printf '  备份失败。\n' >&2; pause; return 0; }
+  tmp_env="$RUNTIME_ENV.tmp.$$"
+  if ! awk -v user="$new_user" -v pass="$new_pass" 'BEGIN{q="\047";u=0;p=0} /^KOTAUI_ADMIN_USER=/{ $0="KOTAUI_ADMIN_USER=" q user q; u=1 } /^KOTAUI_ADMIN_PASSWORD=/{ $0="KOTAUI_ADMIN_PASSWORD=" q pass q; p=1 } { print } END{ if(!u) print "KOTAUI_ADMIN_USER=" q user q; if(!p) print "KOTAUI_ADMIN_PASSWORD=" q pass q }' "$RUNTIME_ENV" > "$tmp_env"; then
+    rm -f "$tmp_env"; printf '  写入失败。\n' >&2; pause; return 0
+  fi
+  chmod 600 "$tmp_env" && mv -f "$tmp_env" "$RUNTIME_ENV" || { rm -f "$tmp_env"; printf '  写入失败。\n' >&2; pause; return 0; }
+  if svc kotaui restart; then
+    sleep 2
+    if running kotaui; then
+      KOTAUI_ADMIN_USER=$new_user
+      KOTAUI_ADMIN_PASSWORD=$new_pass
+      printf '  已修改，请用新账号密码登录。\n'; pause; return 0
+    fi
+  fi
+  printf '  重启失败，正在恢复。\n' >&2
+  cp -p "$RUNTIME_ENV.bak" "$RUNTIME_ENV" || true
+  svc kotaui restart >/dev/null 2>&1 || true
+  printf '  修改失败，已恢复原账号密码。\n' >&2; pause; return 0
+}
+
 service_menu(){
   clear_screen
   page_head '服务控制'
@@ -453,11 +506,13 @@ menu(){
     printf '  %s4%s  证书续签\n' "$C_CYAN" "$C_RST"
     printf '  %s5%s  更新 KotaUI\n' "$C_CYAN" "$C_RST"
     printf '  %s6%s  卸载 KotaUI\n' "$C_CYAN" "$C_RST"
+    printf '  %s7%s  修改登录账号密码\n' "$C_CYAN" "$C_RST"
     printf '  %s0%s  退出\n' "$C_CYAN" "$C_RST"
-    printf '\n  请选择 [0-6]： '; IFS= read -r choice || true
+    printf '\n  请选择 [0-7]： '; IFS= read -r choice || true
     case "$choice" in
       1) panel_login_info;; 2) service_menu;; 3) logs;;
       4) renew;; 5) update;; 6) uninstall; exit 0;;
+      7) change_admin_login;;
       0) exit 0;; *) printf '  无效选择。\n'; sleep 1;;
     esac
   done
