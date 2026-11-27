@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Check Go formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo 'gofmt: the following files need formatting:'
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Vet Go code
+        run: go vet ./...
+
+      - name: Build Go code
+        run: go build ./...
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Install govulncheck
+        # Deliberately no fallback: if the install fails (e.g. no network),
+        # this step fails loudly instead of silently skipping the scan.
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Check for known Go vulnerabilities
+        run: govulncheck ./...
+
+      - name: Check shell scripts
+        run: |
+          for f in service/kota install.sh service/kota-*; do
+            # *.service / *.timer are systemd units, not shell scripts.
+            case "$f" in
+              *.service|*.timer) continue ;;
+            esac
+            sh -n "$f"
+            dash -n "$f"
+          done
