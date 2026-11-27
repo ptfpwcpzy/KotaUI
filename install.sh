@@ -67,6 +67,13 @@ banner_art(){
 print_banner(){
   cols=$(tput cols 2>/dev/null || echo 80)
   case "$cols" in ''|*[!0-9]*) cols=80;; esac
+  if [ "$cols" -lt 60 ]; then
+    ti=$(( (cols - 22) / 2 ))
+    [ "$ti" -lt 0 ] && ti=0
+    tpad=$(printf '%*s' "$ti" '')
+    printf '%s%s轻量 sing-box 管理面板%s\n' "$tpad" "$C_DIM" "$C_RST" >&2
+    return 0
+  fi
   indent=2
   if [ "$cols" -gt 63 ]; then indent=$(( (cols - 59) / 2 )); fi
   pad=$(printf '%*s' "$indent" '')
