@@ -104,7 +104,7 @@ print_banner(){
     printf '%s\n' "$line"
     row=$((row + 1))
   done
-  printf '%s%s          轻量 sing-box 管理面板    作者 · 那么羡慕你%s\n' "$pad" "$C_DIM" "$C_RST"
+  printf '%s%s          轻量 sing-box 管理面板%s\n' "$pad" "$C_DIM" "$C_RST"
 }
 
 # ---------- 基础工具 ----------

@@ -85,7 +85,6 @@ print_banner(){
     row=$((row + 1))
   done
   printf '%s%s               轻量 sing-box 管理面板%s\n' "$pad" "$C_DIM" "$C_RST" >&2
-  printf '%s%s                 作者 · 那么羡慕你%s\n' "$pad" "$C_DIM" "$C_RST" >&2
 }
 
 # ---------------- 步骤 / 任务 ----------------
@@ -214,7 +213,6 @@ welcome(){
   printf '    %s6/6%s 申请证书、启动服务\n' "$C_BOLD" "$C_RST" >&2
   printf '\n  %s适用 Alpine、Debian、Ubuntu；建议单核 512MB 以上内存。\n' "$C_DIM" >&2
   printf '  请确认域名或 IP 已指向本服务器，且 TCP 80 端口可访问。%s\n' "$C_RST" >&2
-  printf '\n  %s作者那么羡慕你，仅供学习自用，请勿随意传播。%s\n' "$C_DIM" "$C_RST" >&2
 }
 
 validate_port(){ case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]; }
@@ -468,7 +466,6 @@ final_screen(){
   printf '\n  %s证书已签发，自动续签已启用。%s\n' "$C_DIM" "$C_RST" >&2
   printf '  %s━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%s\n' "$C_DIM" "$C_RST" >&2
   printf '  下次管理 KotaUI，请在终端输入 %skota%s 呼出主菜单。\n' "$C_BOLD" "$C_RST" >&2
-  printf '  %s作者 · 那么羡慕你%s\n\n' "$C_DIM" "$C_RST" >&2
 }
 
 welcome
